@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const path=require('node:path');
 const {pathToFileURL}=require('node:url');
 (async()=>{
- const browser=await chromium.launch({headless:true,chromiumSandbox:true,...(process.env.PRISM_TEST_BROWSER?{executablePath:process.env.PRISM_TEST_BROWSER}:{})});
+ const browser=await chromium.launch({headless:true,channel:'chromium',chromiumSandbox:true,...(process.env.PRISM_TEST_BROWSER?{executablePath:process.env.PRISM_TEST_BROWSER}:{})});
  let failures=0;
  for(const scenario of ['missing microphone','stop pending permission','newest device scan','Windows desktop capture','Windows rejects tab','loopback selection']){
  const page=await browser.newPage({viewport:{width:400,height:300}});
@@ -22,6 +22,7 @@ const {pathToFileURL}=require('node:url');
  },{scenario});
  await page.goto(pathToFileURL(path.resolve(__dirname,'../rgb-audio-visualizer-v4.html')).href);
  await page.waitForLoadState('networkidle');
+ if(!await page.locator('#btn-tab').count())throw new Error('App controls missing at '+page.url()+'; title='+await page.title()+'; document='+(await page.content()).slice(0,1000));
  if(scenario==='missing microphone'){
   await page.evaluate(()=>__prism4.startMic());
   assert.equal(await page.evaluate(()=>inputCalls.length),0,'Missing remembered mic must not capture default input');
@@ -45,6 +46,7 @@ const {pathToFileURL}=require('node:url');
   await page.waitForFunction(()=>__prism4.source==='sys');
   assert.equal(await page.evaluate(()=>inputCalls.at(-1).audio.deviceId.exact),'loop-two');
   await page.reload();await page.waitForLoadState('networkidle');
+ if(!await page.locator('#btn-tab').count())throw new Error('App controls missing at '+page.url()+'; title='+await page.title()+'; document='+(await page.content()).slice(0,1000));
   await page.locator('#btn-sys').click();await page.waitForFunction(()=>__prism4.source==='sys');
   assert.equal(await page.evaluate(()=>inputCalls.at(-1).audio.deviceId.exact),'loop-two','Remember selected desktop input');
  }else if(scenario==='Windows rejects tab'){

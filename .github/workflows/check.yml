@@ -5,6 +5,7 @@ permissions:
 jobs:
   validate:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-22.04, windows-latest]
     runs-on: ${{ matrix.os }}

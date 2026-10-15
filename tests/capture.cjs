@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const path=require('node:path');
 const {pathToFileURL}=require('node:url');
 (async()=>{
- const browser=await chromium.launch({headless:true,chromiumSandbox:true,...(process.env.PRISM_TEST_BROWSER ? {executablePath:process.env.PRISM_TEST_BROWSER}:{})});
+ const browser=await chromium.launch({headless:true,channel:'chromium',chromiumSandbox:true,...(process.env.PRISM_TEST_BROWSER ? {executablePath:process.env.PRISM_TEST_BROWSER}:{})});
  try{
   for(const hasAudio of [true,false]){
    const page=await browser.newPage();
@@ -29,6 +29,7 @@ const {pathToFileURL}=require('node:url');
    },{hasAudio});
    await page.goto(pathToFileURL(path.resolve(__dirname,'../rgb-audio-visualizer-v4.html')).href);
    await page.waitForLoadState('networkidle');
+ if(!await page.locator('#btn-tab').count())throw new Error('App controls missing at '+page.url()+'; title='+await page.title()+'; document='+(await page.content()).slice(0,1000));
    await page.locator('#btn-tab').click();
    await page.waitForFunction(()=>window.__prism4.source!==null,{},{timeout:4000});
    const actual=await page.evaluate(()=>({source:__prism4.source,focus:focusBehavior,options:captureCalls[0],video:videoTrack.readyState,input:window.inputOptions}));
