@@ -2,6 +2,7 @@
 const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
 const path=require('node:path');
+const {pathToFileURL}=require('node:url');
 (async()=>{
  const browser=await chromium.launch({headless:true,chromiumSandbox:true,...(process.env.PRISM_TEST_BROWSER ? {executablePath:process.env.PRISM_TEST_BROWSER}:{})});
  try{
@@ -26,7 +27,7 @@ const path=require('node:path');
      },addEventListener(){}
     }});
    },{hasAudio});
-   await page.goto('file://'+path.resolve(__dirname,'../rgb-audio-visualizer-v4.html'));
+   await page.goto(pathToFileURL(path.resolve(__dirname,'../rgb-audio-visualizer-v4.html')).href);
    await page.waitForLoadState('networkidle');
    await page.locator('#btn-tab').click();
    await page.waitForFunction(()=>window.__prism4.source!==null,{},{timeout:4000});
