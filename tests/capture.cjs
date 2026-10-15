@@ -2,8 +2,10 @@
 const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
 const path=require('node:path');
-const {pathToFileURL}=require('node:url');
+const {start}=require('./server.cjs');
+setTimeout(()=>{console.error('Browser check exceeded 90 seconds');process.exit(1);},90000).unref();
 (async()=>{
+ const server=await start();
  const browser=await chromium.launch({headless:true,channel:'chromium',chromiumSandbox:true,...(process.env.PRISM_TEST_BROWSER ? {executablePath:process.env.PRISM_TEST_BROWSER}:{})});
  try{
   for(const hasAudio of [true,false]){
@@ -11,6 +13,7 @@ const {pathToFileURL}=require('node:url');
    const errors=[];page.on('pageerror',e=>errors.push(e.message));
    await page.addInitScript(({hasAudio})=>{
     Object.defineProperty(navigator,'platform',{value:'Linux x86_64'});
+    localStorage.setItem('prism.v4.desktop.cfg',JSON.stringify({nebula:false,clouds:false,stars:false,grid:false,aurora:false,horizon:false,bars:false,radial:false,orbits:false,strings:false,particles:false,bloom:0,grain:0}));
     window.captureCalls=[];window.focusBehavior=null;
     window.CaptureController=class{setFocusBehavior(value){window.focusBehavior=value;}};
     let ctx;
@@ -27,7 +30,7 @@ const {pathToFileURL}=require('node:url');
      },addEventListener(){}
     }});
    },{hasAudio});
-   await page.goto(pathToFileURL(path.resolve(__dirname,'../rgb-audio-visualizer-v4.html')).href);
+   await page.goto(server.url);
    await page.waitForLoadState('networkidle');
  if(!await page.locator('#btn-tab').count())throw new Error('App controls missing at '+page.url()+'; title='+await page.title()+'; document='+(await page.content()).slice(0,1000));
    await page.locator('#btn-tab').click();
@@ -44,5 +47,5 @@ const {pathToFileURL}=require('node:url');
    await page.close();
   }
   console.log('PASS: tab focus controls, video cleanup, silent screen capture uses whole-desktop input');
- }finally{await browser.close();}
+ }catch(error){console.error(error);throw error;}finally{await browser.close();await server.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -1,15 +1,18 @@
 const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
 const path=require('node:path');
-const {pathToFileURL}=require('node:url');
+const {start}=require('./server.cjs');
+setTimeout(()=>{console.error('Browser check exceeded 90 seconds');process.exit(1);},90000).unref();
 (async()=>{
+ const server=await start();
  const browser=await chromium.launch({headless:true,channel:'chromium',chromiumSandbox:true,...(process.env.PRISM_TEST_BROWSER?{executablePath:process.env.PRISM_TEST_BROWSER}:{})});
  let failures=0;
  for(const scenario of ['missing microphone','stop pending permission','newest device scan','Windows desktop capture','Windows rejects tab','loopback selection']){
  const page=await browser.newPage({viewport:{width:400,height:300}});
  try{
  await page.addInitScript(({scenario})=>{
-  window.inputCalls=[];window.displayCalls=[];window.pending=[];
+  localStorage.setItem('prism.v4.desktop.cfg',JSON.stringify({nebula:false,clouds:false,stars:false,grid:false,aurora:false,horizon:false,bars:false,radial:false,orbits:false,strings:false,particles:false,bloom:0,grain:0}));
+    window.inputCalls=[];window.displayCalls=[];window.pending=[];
   if(scenario.startsWith('Windows'))Object.defineProperty(navigator,'platform',{value:'Win32'});
   if(scenario==='missing microphone')localStorage.setItem('prism.v4.desktop.source',JSON.stringify({kind:'mic',id:'old-id',label:'Disconnected mic'}));
   window.testStream=()=>{const ctx=new AudioContext();const dest=ctx.createMediaStreamDestination();const osc=ctx.createOscillator();osc.connect(dest);osc.start();return dest.stream;};
@@ -20,7 +23,7 @@ const {pathToFileURL}=require('node:url');
    addEventListener(){}
   }});
  },{scenario});
- await page.goto(pathToFileURL(path.resolve(__dirname,'../rgb-audio-visualizer-v4.html')).href);
+ await page.goto(server.url);
  await page.waitForLoadState('networkidle');
  if(!await page.locator('#btn-tab').count())throw new Error('App controls missing at '+page.url()+'; title='+await page.title()+'; document='+(await page.content()).slice(0,1000));
  if(scenario==='missing microphone'){
@@ -63,5 +66,5 @@ const {pathToFileURL}=require('node:url');
  console.log('PASS: '+scenario);
  }catch(e){failures++;console.error('FAIL: '+scenario+' — '+e.message);}finally{await page.close();}
  }
- await browser.close();if(failures)process.exitCode=1;
+ await browser.close();await server.close();if(failures)process.exitCode=1;
 })().catch(e=>{console.error(e);process.exitCode=1});

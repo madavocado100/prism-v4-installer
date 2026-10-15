@@ -4,7 +4,9 @@ A separate edition of [PRISM v4](https://github.com/madavocado100/prism-v4), wit
 Windows/Linux per-user installers and fixes for audio-device selection.
 The original app and its v4.0.0 release are unchanged. This edition has a
 separate installation folder, shortcut name, and browser settings keys.
-The visualizer is a self-contained HTML file with no build step.
+The visualizer is a self-contained HTML file with no build step. You can also
+serve the extracted folder with `python3 -m http.server 8080 --bind 127.0.0.1`
+and open `http://localhost:8080/rgb-audio-visualizer-v4.html`.
 
 ## Windows 10 / 11
 
@@ -127,3 +129,7 @@ node tests/devices.cjs
 The Windows test checks real shortcut creation when run on Windows; on Linux
 it checks PowerShell parsing and the payload installation/update/uninstall
 path. GitHub Actions runs the suite on both Windows and Linux.
+
+Browser device regressions serve the app on localhost with visual layers
+disabled to isolate audio routing; the default configuration and full renderer
+are checked separately.
