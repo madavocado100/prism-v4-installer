@@ -18,18 +18,34 @@ input was created on launch. The new installer creates separate shortcuts
 that call the launcher. The original local shortcut has been left untouched.
 
 Tests use real browser audio graphs with controlled media-device responses
-for cancellation, ordering and platform cases. They do not prove a particular
-hardware driver or browser picker UI works on every machine. A live Linux
-check opened the PRISM System Audio input successfully without screen sharing;
-no nonzero desktop signal was observed during that check. Synthetic browser
-feeds verify analysis and rendering independently.
+for cancellation, ordering and Windows capture cases. Windows shortcut creation
+and browser regressions run in Windows CI. A manual Windows system-audio picker
+session remains a separate hardware/UI acceptance check. Browser-owned capture
+indicators remain controlled by the browser.
 
-PowerShell installation and removal were exercised on Linux in payload-only
-mode. Windows shortcut creation and browser tests are included in Windows CI.
-A manual Windows desktop-audio sharing session remains a separate hardware/UI
-acceptance check. Browser-owned capture indicators cannot be hidden by Prism.
+## Linux native capture update
 
-Known limit: the helper follows the default output, not all independent sound
-cards simultaneously. Applications explicitly routed to another output are
-outside that mix. Device-label recovery may be ambiguous when two devices
-have identical names; choose the desired input explicitly in that case.
+The installed Linux launcher now uses a native local PCM host rather than the
+older virtual-microphone helper. Tests on the local PipeWire server established
+nonzero desktop signal and app isolation using two independent tones on a
+temporary output. Default microphone/output values remained unchanged. The
+included signal amplitude was 0.2441 and excluded signal amplitude 0.000176.
+The test removed its temporary players and sink afterward.
+
+Whole-desktop capture records final physical monitors once; it no longer follows
+only one default output. Exclusions use application identity and all matching
+playback streams rather than process IDs. Virtual forwarding is traced so an
+echo-cancellation playback bus is not counted twice, and private microphone
+buses are not mistaken for desktop sound. A selected output disappearing stops
+its old capture and reports an error. See [LINUX-AUDIO.md](LINUX-AUDIO.md).
+
+Native API and browser tests cover authorization, actual PCM reaching the
+analyser, output/app selection, capture stop, and cancelling wallpaper permission.
+Installer tests cover isolated install/update/uninstall and removal of an owned
+startup entry even when the host is offline. Live X11 preview verified desktop
+bounds and placement beneath desktop icons without creating a startup entry.
+
+These checks do not exhaust every audio server or custom forwarding topology.
+Per-app exclusions require per-stream monitor support. Wayland live wallpaper
+is not supported. Device-label recovery in standalone browser capture may still
+be ambiguous when two inputs have identical labels; select an input explicitly.
