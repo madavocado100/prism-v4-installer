@@ -84,6 +84,7 @@
     background:transparent;color:var(--dim);cursor:pointer}
   #srcRefresh:hover{color:var(--ink);border-color:var(--blue)}
   #srcNote{display:none;margin-top:6px;font-size:9px;color:var(--dim);letter-spacing:.04em;line-height:1.55}
+  #nativeControls{flex:0 0 auto} #nativeControls button,#nativeControls select{background:#101421;color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:5px;font:inherit} #nativeApps label{padding:3px 0} #nativeApps input{accent-color:var(--blue)}
   #sBody{overflow-y:auto;overflow-x:hidden;flex:1 1 auto;padding:4px 0 30px;scrollbar-width:thin;
     scrollbar-color:rgba(140,150,200,.3) transparent}
   #sBody::-webkit-scrollbar{width:7px}
@@ -161,6 +162,7 @@
   #toast.long{width:max-content;max-width:min(86vw,620px);text-align:center;line-height:1.6;
     text-transform:none;letter-spacing:.05em;color:var(--amber)}
   @media (max-width:640px){ #settings{width:100%} }
+  body.wallpaper #hud, body.wallpaper #gear, body.wallpaper #overlay, body.wallpaper #settings, body.wallpaper #toast {display:none!important}
 </style>
 </head>
 <body>
@@ -208,6 +210,13 @@
     </div>
   </header>
   <div id="sBody"></div>
+  <div id="nativeControls" hidden style="padding:10px 16px;border-top:1px solid var(--line);font-size:11px">
+      <div style="margin-bottom:6px">Linux desktop</div>
+      <div style="display:flex;gap:6px"><select id="nativeOutput" aria-label="Desktop audio outputs" style="min-width:0;flex:1"></select><button id="btnNativeRefresh" title="Refresh playback apps">↻</button></div>
+      <div id="nativeApps" style="display:flex;flex-direction:column;max-height:100px;overflow:auto;margin:8px 0"></div>
+      <button id="btnWallpaper" style="width:100%">Set as desktop wallpaper…</button>
+      <p id="nativeNote" style="font-size:10px;color:var(--dim);margin:6px 0"></p>
+    </div>
   <div id="sFoot">
     <div class="frow">
     <button id="btnRandom">Randomise</button>
@@ -250,6 +259,8 @@
 <script>
 (() => {
 'use strict';
+const NATIVE = window.__PRISM_NATIVE__ || null;
+let nativeSaveTimer = 0;
 window.addEventListener('error', e => { (window.__errs = window.__errs || []).push(String(e.message)); });
 
 /* =====================================================================
@@ -492,7 +503,7 @@ SCHEMA.forEach(g => g.items.forEach(it => { if (it.t === 'num') NUMKEYS.add(it.k
 
 function loadCfg() {
   try {
-    const raw = localStorage.getItem(LSKEY);
+    const raw = NATIVE && NATIVE.cfg && Object.keys(NATIVE.cfg).length ? JSON.stringify(NATIVE.cfg) : localStorage.getItem(LSKEY);
     if (!raw) return;
     const o = JSON.parse(raw);
     if (o && typeof o === 'object') {
@@ -502,6 +513,7 @@ function loadCfg() {
   } catch (e) {}
 }
 function saveCfg() {
+  saveNativeCfg();
   try { localStorage.setItem(LSKEY, JSON.stringify(Object.assign({ __preset: curPreset }, CFG))); } catch (e) {}
 }
 function coerce(k, v) {
@@ -832,7 +844,7 @@ let demoBpm = 0;
 
 function ensureCtx() {
   if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
-  actx = new (window.AudioContext || window.webkitAudioContext)();
+  actx = new (window.AudioContext || window.webkitAudioContext)(NATIVE ? {sampleRate:48000} : {});
   inputGain = actx.createGain(); inputGain.gain.value = CFG.gain;
   monitorGain = actx.createGain(); monitorGain.gain.value = CFG.monitor ? CFG.volume : 0;
   monitorGain.connect(actx.destination);
@@ -980,6 +992,7 @@ function startMic(dev) {
 }
 
 function startSystem(deviceId) {
+  if (NATIVE && !deviceId) return startNativeSystem();
   // Windows Chromium can capture the desktop mix directly. Open the picker
   // synchronously from the click so transient user activation is preserved.
   if (!deviceId && /Win/i.test(navigator.platform) && !sysDevice()) return startDisplay('sys');
@@ -2595,8 +2608,11 @@ function updateShake(now, m, dt) {
   const mag = (SHKX < 0 ? -SHKX : SHKX) + (SHKY < 0 ? -SHKY : SHKY);
   SHKP = Math.min(Math.min(W, H) * 0.07, mag + Math.abs(SHKR) * Math.max(W, H) + 2);
 }
+let wallpaperFrame = 0;
 function frame(now) {
   requestAnimationFrame(frame);
+  if (NATIVE && NATIVE.wallpaper && now-wallpaperFrame < 1000/30) return;
+  wallpaperFrame=now;
   fpsN++;
   if (now - lastFpsT > 500) { fps = Math.round(fpsN * 1000 / (now - lastFpsT)); fpsN = 0; lastFpsT = now; }
   const dt = lastFrameT ? Math.min(0.05, (now - lastFrameT) / 1000) : 0.016;
@@ -2740,7 +2756,7 @@ function fillSelect(sel, opts, value) {
 function renderSourceUI() {
   const cur = curSource ? curSource.kind : '';
   const sys = sysDevice(), mics = micDevices();
-  const sysMissing = labelsKnown && !sys && !/Win/i.test(navigator.platform);
+  const sysMissing = !NATIVE && labelsKnown && !sys && !/Win/i.test(navigator.platform);
 
   const want = cur || lastSrc.kind || 'demo';
   document.querySelectorAll('#panel .btn[data-kind]').forEach(b => b.classList.toggle('primary', b.dataset.kind === want));
@@ -2758,7 +2774,7 @@ function renderSourceUI() {
 
   const opts = [];
   if (!cur) opts.push(['', '— none —']);
-  opts.push(['demo', 'Demo signal'], ['sys', sys || /Win/i.test(navigator.platform) ? 'Entire desktop audio' : 'Entire desktop audio (not set up)']);
+  opts.push(['demo', 'Demo signal'], ['sys', NATIVE || sys || /Win/i.test(navigator.platform) ? 'Entire desktop audio' : 'Entire desktop audio (not set up)']);
   for (const d of inputs.filter(d => d.sys)) opts.push(['sys:' + d.id, 'Desktop · ' + d.label]);
   for (const [id, name] of micOpts) opts.push(['mic:' + id, 'Mic · ' + name]);
   opts.push(['tab', 'Browser tab audio…']);
@@ -2767,7 +2783,7 @@ function renderSourceUI() {
   opts.push(['file', 'Audio file…']);
   fillSelect(srcSel, opts, cur === 'sys' && curSource.id && curSource.id !== 'default' ? 'sys:' + curSource.id : cur === 'mic' ? 'mic:' + curSource.id : cur === 'file' ? 'file:cur' : cur);
 
-  const note = !labelsKnown ? 'Device names appear once the page has microphone access (↻ asks for it).'
+  const note = NATIVE ? 'Native desktop capture is available; choose outputs and exclusions below.' : !labelsKnown ? 'Device names appear once the page has microphone access (↻ asks for it).'
     : sysMissing ? 'No "PRISM System Audio" input. Open PRISM from its launcher (prism-v4.sh) to hear what is playing.'
     : '';
   srcNote.textContent = note; srcNote.style.display = note ? 'block' : 'none';
@@ -2918,6 +2934,125 @@ allocParticles(Math.max(100, Math.round(CFG.partMax)));
 resize();
 markPresetRow();
 requestAnimationFrame(frame);
+
+/* Linux native host. Standalone HTML and Windows retain browser capture. */
+let nativeInfo = null;
+function nativeRequest(path, body) {
+  return fetch(path, { method:body === undefined ? 'GET' : 'POST',
+    headers:{'X-Prism-Token':NATIVE.token, 'Content-Type':'application/json'},
+    ...(body === undefined ? {} : {body:JSON.stringify(body)})
+  }).then(async response => { const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Native operation failed'); return data; });
+}
+function saveNativeCfg() {
+  if (!NATIVE || NATIVE.wallpaper) return;
+  clearTimeout(nativeSaveTimer);
+  nativeSaveTimer = setTimeout(() => nativeRequest('/native/settings', {cfg:Object.assign({__preset:curPreset},CFG)}).catch(e => toast(e.message,5500)), 250);
+}
+async function refreshNativeUI() {
+  if (!NATIVE || NATIVE.wallpaper) return;
+  try {
+    nativeInfo = await nativeRequest('/native/info');
+    const output = document.getElementById('nativeOutput');
+    const selected = nativeInfo.audio.output;
+    const options = [['all','All desktop outputs'],['default','Follow default output']].concat(nativeInfo.routes.outputs.filter(o=>o.physical).map(o=>[o.name,o.label]));
+    if (!options.some(o=>o[0] === selected)) options.push([selected,'Unavailable output']);
+    fillSelect(output,options,selected);
+    const apps = document.getElementById('nativeApps');
+    apps.replaceChildren();
+    const visibleApps = nativeInfo.routes.apps.concat(nativeInfo.audio.excluded.filter(key=>!nativeInfo.routes.apps.some(a=>a.key===key)).map(key=>({key,name:(key.split('|').pop() || key)+' (not playing)'})));
+    for (const app of visibleApps) {
+      const label = document.createElement('label');
+      const check = document.createElement('input');
+      check.type='checkbox'; check.checked=nativeInfo.audio.excluded.includes(app.key);
+      check.addEventListener('change',()=> {
+        const excluded = new Set(nativeInfo.audio.excluded);
+        check.checked ? excluded.add(app.key) : excluded.delete(app.key);
+        setNativeAudio(output.value,[...excluded]);
+      });
+      label.append(check,document.createTextNode(' Exclude '+app.name));
+      apps.append(label);
+    }
+    const button = document.getElementById('btnWallpaper');
+    button.disabled = !nativeInfo.wallpaperSupported;
+    button.textContent = nativeInfo.wallpaperActive || nativeInfo.autostart ? 'Stop wallpaper / remove startup' : 'Set as desktop wallpaper…';
+    document.getElementById('nativeNote').textContent = nativeInfo.error || nativeInfo.captureError || (!nativeInfo.wallpaperSupported ? 'Live wallpaper requires an X11 desktop, xdotool, xprop and zenity.' : 'Desktop audio reads output monitors; microphone and app routes stay unchanged.');
+  } catch(e) { document.getElementById('nativeNote').textContent=e.message; }
+}
+async function setNativeAudio(output,excluded) {
+  try {
+    nativeInfo = await nativeRequest('/native/audio-selection',{output,excluded});
+    await refreshNativeUI();
+    if(curSource && curSource.native) startSystem();
+  } catch(e) { showError(e.message); await refreshNativeUI(); }
+}
+let nativeWorkletReady = null;
+async function startNativeSystem() {
+  const seq=++reqSeq;
+  ensureCtx();
+  await actx.resume();
+  const abort = new AbortController();
+  let node=null, silence=null, reader=null;
+  const cleanup=()=>{abort.abort();if(reader)reader.cancel().catch(()=>{});if(node)try{node.disconnect();}catch(e){}if(silence)try{silence.disconnect();}catch(e){};};
+  try {
+    if(!nativeWorkletReady) {
+      const code=`class PrismPCM extends AudioWorkletProcessor {
+        constructor(){super();this.q=[];this.pos=0;this.frames=0;this.port.onmessage=e=>{this.q.push(e.data);this.frames+=e.data.length;if(this.frames>96000){this.q=[e.data];this.pos=0;this.frames=e.data.length;}};}
+        process(i,o){const out=o[0][0];for(let n=0;n<out.length;n++){if(!this.q.length){out[n]=0;continue;}const block=this.q[0];out[n]=block[this.pos++];this.frames--;if(this.pos===block.length){this.q.shift();this.pos=0;}}return true;}
+      }registerProcessor('prism-pcm',PrismPCM);`;
+      const url=URL.createObjectURL(new Blob([code],{type:'text/javascript'}));
+      nativeWorkletReady=actx.audioWorklet.addModule(url).finally(()=>URL.revokeObjectURL(url));
+    }
+    await nativeWorkletReady;
+    const response=await fetch('/native/audio',{headers:{'X-Prism-Token':NATIVE.token},signal:abort.signal});
+    if(!response.ok){const error=await response.json();throw new Error(error.error || 'Desktop audio unavailable');}
+    if(seq!==reqSeq){cleanup();return;}
+    node=new AudioWorkletNode(actx,'prism-pcm',{outputChannelCount:[1]});
+    silence=actx.createGain();silence.gain.value=0;
+    node.connect(inputGain);node.connect(silence);silence.connect(actx.destination);
+    reader=response.body.getReader();
+    setSource({kind:'sys',label:'DESKTOP AUDIO',native:true,monitored:false,stop:cleanup});
+    rememberSrc({kind:'sys',id:'native-desktop',label:'Desktop outputs'});
+    let pending=new Uint8Array(0);
+    while(true){
+      const {value,done}=await reader.read();if(done)break;
+      if(seq!==reqSeq){cleanup();return;}
+      const bytes=new Uint8Array(pending.length+value.length);bytes.set(pending);bytes.set(value,pending.length);
+      const length=bytes.length-bytes.length%4;
+      if(length){const samples=new Float32Array(bytes.buffer.slice(0,length));node.port.postMessage(samples,[samples.buffer]);}
+      pending=bytes.slice(length);
+    }
+    if(seq===reqSeq){stopSource();showError('Desktop audio disconnected. Check the output selection and try again.');}
+  }catch(e){cleanup();if(seq===reqSeq && e.name!=='AbortError')showError(e.message);}
+}
+if (NATIVE) {
+  if(NATIVE.wallpaper){
+    CFG.hud=false;CFG.monitor=false;
+    document.body.classList.add('wallpaper');
+    setTimeout(startSystem,100);
+    setInterval(async()=>{
+      try{
+        const state=await nativeRequest('/native/state');let changed=false;
+        for(const k in DEFAULTS){if(k==='hud'||k==='monitor'||!(k in state.cfg))continue;const value=coerce(k,state.cfg[k]);if(CFG[k]!==value){CFG[k]=value;changed=true;}}
+        if(changed){onCfgChanged(true);syncPanel();}
+      }catch(e){}
+    },1200);
+  }else{
+    document.getElementById('nativeControls').hidden=false;
+    document.getElementById('nativeOutput').addEventListener('change',()=>setNativeAudio(document.getElementById('nativeOutput').value,nativeInfo?nativeInfo.audio.excluded:[]));
+    document.getElementById('btnNativeRefresh').addEventListener('click',refreshNativeUI);
+    document.getElementById('btnWallpaper').addEventListener('click',async()=>{
+      const button=document.getElementById('btnWallpaper');button.disabled=true;
+      try{
+        const stop=nativeInfo && (nativeInfo.wallpaperActive || nativeInfo.autostart);
+        const result=await nativeRequest(stop?'/native/wallpaper/stop':'/native/wallpaper',{cfg:Object.assign({__preset:curPreset},CFG)});
+        if(!result.cancelled){toast(stop?'Wallpaper stopped; startup entry removed':'Live wallpaper enabled at sign-in',5000);if(!stop)stopSource();}
+      }catch(e){showError(e.message);}
+      await refreshNativeUI();
+    });
+    refreshNativeUI();
+    setInterval(()=>nativeRequest('/native/state').then(state=>{if(state.captureError)document.getElementById('nativeNote').textContent=state.captureError;}).catch(()=>{}),4000);
+  }
+}
 
 /* small debug surface for automated checks */
 window.__prism4 = {

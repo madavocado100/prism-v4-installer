@@ -31,34 +31,51 @@ The wrapper's execution-policy option applies only to that process.
 
 ## Linux
 
-Requires Python 3 and Bash for installation, plus Brave, Chrome, or Chromium.
-For desktop audio, use a PipeWire desktop with PulseAudio compatibility,
-`pw-loopback`, `pactl`, and a working `systemd --user` session. Package names
-vary by distribution (commonly `pipewire-bin` and `pulseaudio-utils`).
-
-From the extracted folder:
+Requires Python 3, Bash, Brave/Chrome/Chromium, and a PulseAudio-compatible
+server (including PipeWire's PulseAudio service). Desktop capture uses `pactl`
+and `parec`, usually supplied by `pulseaudio-utils`. Live wallpaper also needs
+an **X11** session, `xdotool`, `xprop`, `zenity`, and the X11/XFixes libraries.
+On Debian/Ubuntu/Zorin, the supporting tools are available with:
 
 ```sh
+sudo apt install pulseaudio-utils xdotool x11-utils zenity
 bash install-linux.sh
 ```
 
 Open **PRISM v4 Desktop Audio** from the application menu, then choose
-**Entire desktop audio** or press **A**. Grant microphone permission so the
-browser can read the virtual input. The shortcut starts the audio helper
-before opening the browser; no tab or screen is shared for this mode.
+**Entire desktop audio** or press **A**. The native host reads output monitors
+directly: there is no microphone permission request or screen/tab sharing picker.
+In **C → Linux desktop**, choose all outputs, follow the default output, or select
+an output explicitly. Check apps to exclude them from capture. App audio keeps
+playing normally; exclusions affect only the visualizer.
 
 The app installs under `${XDG_DATA_HOME:-~/.local/share}/prism-v4-desktop` and
-creates a distinct `prism-v4-desktop.desktop` entry. The helper exposes the
-default output as **PRISM System Audio**, leaves your default microphone
-alone, and runs until logout/reboot or until stopped:
+creates a distinct `prism-v4-desktop.desktop` entry. Its private browser profiles
+and native settings are under `${XDG_CONFIG_HOME:-~/.config}/prism-v4-desktop`.
+Use the new **PRISM v4 Desktop Audio** shortcut: an older PRISM shortcut opening
+the original HTML does not start the native host.
+
+### Live wallpaper (Linux X11)
+
+While PRISM is open, choose **C → Linux desktop → Set as desktop wallpaper**.
+A native permission dialog asks before creating
+`${XDG_CONFIG_HOME:-~/.config}/autostart/prism-v4-wallpaper.desktop`.
+Approval starts a click-through wallpaper below normal windows and desktop icons,
+auto-scaled to the desktop bounds. It starts again at sign-in, restores saved
+visualizer/audio settings, and follows display-size changes. It uses a separate
+browser window capped at 30 frames/second. Wayland is not supported yet.
+
+**Stop wallpaper & remove startup** closes it and removes its startup entry.
+You can also run the following even when the native host has stopped:
 
 ```sh
-~/.local/share/prism-v4-desktop/prism-system-audio.sh stop
+~/.local/share/prism-v4-desktop/prism-v4.sh --stop
 ```
 
-For a non-default browser, set `PRISM_BROWSER` to its executable path before
-running the launcher. The installed app is independent of the extracted
-installer folder. Re-run the installer to update it.
+Installation alone never enables wallpaper or autostart. The static desktop
+wallpaper, default microphone, output selection, and other apps' routing are
+preserved. For a non-default Chromium browser, set `PRISM_BROWSER` to its
+executable path before running the launcher. Re-run the installer to update.
 
 ```sh
 bash install-linux.sh --uninstall
@@ -78,7 +95,7 @@ preserve unrelated files in the install folder and browser settings.
   selected loopback is remembered, including when its device ID changes but
   its label stays the same.
 - Windows desktop audio opens native screen-audio capture directly from the
-  click. Linux uses the desktop loopback without a sharing picker.
+  click. the installed Linux edition reads native output monitors without a sharing picker.
 - A Linux screen/window share with no audio falls back to the desktop input.
 - Optional tab sharing requests no focus change, excludes Prism itself, and
   requests removal of “Share this tab instead”. Browser capture indicators
@@ -118,12 +135,17 @@ playback use the monitoring volume. Append `?auto=demo&mute=1` or
 
 ```sh
 node scripts/check.cjs
+python3 tests/audio-routing.py
+python3 tests/native.py
 python3 tests/desktop.py
 pwsh -NoProfile -File tests/windows.ps1
 npm install --no-save playwright@1.62.1
 npx playwright install chromium
 node tests/capture.cjs
 node tests/devices.cjs
+node tests/native-browser.cjs
+# Optional live PulseAudio/PipeWire signal test (temporary null sink):
+PRISM_LIVE_AUDIO_TEST=1 python3 tests/linux-signal.py
 ```
 
 The Windows test checks real shortcut creation when run on Windows; on Linux
@@ -133,3 +155,5 @@ path. GitHub Actions runs the suite on both Windows and Linux.
 Browser device regressions serve the app on localhost with visual layers
 disabled to isolate audio routing; the default configuration and full renderer
 are checked separately.
+
+See [LINUX-AUDIO.md](LINUX-AUDIO.md) for native routing and exclusion behavior.

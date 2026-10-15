@@ -20,6 +20,10 @@ jobs:
         if: runner.os == 'Linux'
       - run: bash -n install-linux.sh prism-v4.sh prism-system-audio.sh
         if: runner.os == 'Linux'
+      - run: python3 tests/native.py
+        if: runner.os == 'Linux'
+      - run: python3 tests/audio-routing.py
+        if: runner.os == 'Linux'
       - run: python3 tests/desktop.py
         if: runner.os == 'Linux'
       - run: pwsh -NoProfile -File tests/windows.ps1
@@ -28,3 +32,5 @@ jobs:
         if: runner.os == 'Linux'
       - run: node tests/capture.cjs
       - run: node tests/devices.cjs
+      - run: node tests/native-browser.cjs
+        if: runner.os == 'Linux'
