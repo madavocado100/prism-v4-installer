@@ -6,7 +6,7 @@ const {start}=require('./server.cjs');
 setTimeout(()=>{console.error('Browser check exceeded 90 seconds');process.exit(1);},90000).unref();
 (async()=>{
  const server=await start();
- const browser=await chromium.launch({headless:true,channel:'chromium',chromiumSandbox:true,...(process.env.PRISM_TEST_BROWSER ? {executablePath:process.env.PRISM_TEST_BROWSER}:{})});
+ const browser=await chromium.launch({headless:true,channel:process.env.PRISM_TEST_CHANNEL || 'chromium',chromiumSandbox:true,...(process.env.PRISM_TEST_BROWSER ? {executablePath:process.env.PRISM_TEST_BROWSER}:{})});
  try{
   for(const hasAudio of [true,false]){
    const page=await browser.newPage();

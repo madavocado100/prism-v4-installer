@@ -9,6 +9,8 @@ jobs:
       matrix:
         os: [ubuntu-22.04, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      PRISM_TEST_CHANNEL: ${{ runner.os == 'Windows' && 'msedge' || 'chromium' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,5 +25,6 @@ jobs:
       - run: pwsh -NoProfile -File tests/windows.ps1
       - run: npm install --no-save playwright@1.62.1
       - run: npx playwright install --with-deps chromium
+        if: runner.os == 'Linux'
       - run: node tests/capture.cjs
       - run: node tests/devices.cjs

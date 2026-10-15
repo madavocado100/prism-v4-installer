@@ -5,7 +5,7 @@ const {start}=require('./server.cjs');
 setTimeout(()=>{console.error('Browser check exceeded 90 seconds');process.exit(1);},90000).unref();
 (async()=>{
  const server=await start();
- const browser=await chromium.launch({headless:true,channel:'chromium',chromiumSandbox:true,...(process.env.PRISM_TEST_BROWSER?{executablePath:process.env.PRISM_TEST_BROWSER}:{})});
+ const browser=await chromium.launch({headless:true,channel:process.env.PRISM_TEST_CHANNEL || 'chromium',chromiumSandbox:true,...(process.env.PRISM_TEST_BROWSER?{executablePath:process.env.PRISM_TEST_BROWSER}:{})});
  let failures=0;
  for(const scenario of ['missing microphone','stop pending permission','newest device scan','Windows desktop capture','Windows rejects tab','loopback selection']){
  const page=await browser.newPage({viewport:{width:400,height:300}});
