@@ -10,7 +10,7 @@ jobs:
         os: [ubuntu-22.04, windows-latest]
     runs-on: ${{ matrix.os }}
     env:
-      PRISM_TEST_CHANNEL: ${{ runner.os == 'Windows' && 'msedge' || 'chromium' }}
+      PRISM_TEST_CHANNEL: ${{ matrix.os == 'windows-latest' && 'msedge' || 'chromium' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
