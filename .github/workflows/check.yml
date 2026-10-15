@@ -1,0 +1,26 @@
+name: Validate installers and audio selection
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  validate:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/check.cjs
+        if: runner.os == 'Linux'
+      - run: bash -n install-linux.sh prism-v4.sh prism-system-audio.sh
+        if: runner.os == 'Linux'
+      - run: python3 tests/desktop.py
+        if: runner.os == 'Linux'
+      - run: pwsh -NoProfile -File tests/windows.ps1
+      - run: npm install --no-save playwright@1.62.1
+      - run: npx playwright install --with-deps chromium
+      - run: node tests/capture.cjs
+      - run: node tests/devices.cjs

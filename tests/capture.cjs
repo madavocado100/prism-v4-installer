@@ -1,0 +1,46 @@
+// Run with Playwright installed: node tests/capture.cjs
+const {chromium}=require('playwright');
+const assert=require('node:assert/strict');
+const path=require('node:path');
+(async()=>{
+ const browser=await chromium.launch({headless:true,chromiumSandbox:true,...(process.env.PRISM_TEST_BROWSER ? {executablePath:process.env.PRISM_TEST_BROWSER}:{})});
+ try{
+  for(const hasAudio of [true,false]){
+   const page=await browser.newPage();
+   const errors=[];page.on('pageerror',e=>errors.push(e.message));
+   await page.addInitScript(({hasAudio})=>{
+    Object.defineProperty(navigator,'platform',{value:'Linux x86_64'});
+    window.captureCalls=[];window.focusBehavior=null;
+    window.CaptureController=class{setFocusBehavior(value){window.focusBehavior=value;}};
+    let ctx;
+    function audio(){ctx ||= new AudioContext();const dest=ctx.createMediaStreamDestination();const osc=ctx.createOscillator();osc.connect(dest);osc.start();return dest.stream;}
+    Object.defineProperty(navigator,'mediaDevices',{value:{
+     enumerateDevices:async()=>[{deviceId:'desktop-loopback',groupId:'desktop',kind:'audioinput',label:'PRISM System Audio'}],
+     getUserMedia:async(options)=>{window.inputOptions=options;return audio();},
+     getDisplayMedia:async(options)=>{
+      window.captureCalls.push(options);
+      const canvas=document.createElement('canvas');
+      const stream=canvas.captureStream();window.videoTrack=stream.getVideoTracks()[0];
+      if(hasAudio)stream.addTrack(audio().getAudioTracks()[0]);
+      return stream;
+     },addEventListener(){}
+    }});
+   },{hasAudio});
+   await page.goto('file://'+path.resolve(__dirname,'../rgb-audio-visualizer-v4.html'));
+   await page.waitForLoadState('networkidle');
+   await page.locator('#btn-tab').click();
+   await page.waitForFunction(()=>window.__prism4.source!==null,{},{timeout:4000});
+   const actual=await page.evaluate(()=>({source:__prism4.source,focus:focusBehavior,options:captureCalls[0],video:videoTrack.readyState,input:window.inputOptions}));
+   assert.equal(actual.focus,'no-focus-change','Tab capture must retain Prism focus');
+   assert.equal(actual.options.surfaceSwitching,'exclude','Do not offer Share this tab instead');
+   assert.equal(actual.options.selfBrowserSurface,'exclude');
+   assert.equal(actual.options.preferCurrentTab,false);
+   assert.equal(actual.video,'ended','Prism must immediately stop video capture');
+   assert.equal(actual.source,hasAudio?'tab':'sys','Screen capture without audio must fall back to desktop input');
+   if(!hasAudio)assert.equal(actual.input.audio.deviceId.exact,'desktop-loopback');
+   assert.deepEqual(errors,[]);
+   await page.close();
+  }
+  console.log('PASS: tab focus controls, video cleanup, silent screen capture uses whole-desktop input');
+ }finally{await browser.close();}
+})().catch(e=>{console.error(e);process.exitCode=1;});

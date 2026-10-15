@@ -1,0 +1,2940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PRISM v4 — RGB Audio Visualizer</title>
+<style>
+  :root{
+    --bg:#04050c;
+    --ink:#cfd4ea;
+    --dim:#7c83a3;
+    --line:rgba(140,150,200,.16);
+    --line2:rgba(140,150,200,.30);
+    --red:#ff4d5e;
+    --green:#3dff9c;
+    --blue:#5b8bff;
+    --amber:#ffc24d;
+    --violet:#b985ff;
+    --card:rgba(9,11,22,.86);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;
+    -webkit-font-smoothing:antialiased;}
+  canvas#viz{display:block;width:100vw;height:100vh}
+
+  /* ---------------- HUD ---------------- */
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:5;color:var(--ink);
+    font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+    text-shadow:0 0 10px rgba(0,0,0,.9);transition:opacity .25s}
+  #hud.off{opacity:0}
+  #hud .tl{position:absolute;top:16px;left:20px;display:flex;flex-direction:column;gap:7px}
+  #hud .title{font-size:12px}
+  #hud .title b{font-weight:600;letter-spacing:.12em}
+  #hud .title .rgbdot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px;vertical-align:1px;
+    box-shadow:0 0 8px currentColor}
+  #hud .sub{color:var(--dim)}
+  #hud .sub b{color:var(--ink);font-weight:500}
+  .meters{display:flex;gap:10px;margin-top:3px}
+  .meter{display:flex;flex-direction:column;gap:4px;width:52px}
+  .meter .lbl{color:var(--dim);font-size:8.5px;letter-spacing:.12em}
+  .meter .bar{height:3px;background:rgba(255,255,255,.07);position:relative;overflow:hidden}
+  .meter .bar i{display:block;height:100%;width:0}
+  .meter .bar u{position:absolute;top:0;width:2px;height:100%;background:rgba(255,255,255,.55);left:0}
+  #mSub i{background:#ff3b6b} #mBass i{background:var(--red)} #mMid i{background:var(--green)}
+  #mHi i{background:var(--blue)} #mTreb i{background:var(--violet)}
+  /* one bottom strip: identity left, key hints right, flexed so the two
+     halves can never overlap the way the old absolute bottom-left /
+     bottom-right pair did */
+  #hud .foot{position:absolute;left:0;right:0;bottom:14px;display:flex;align-items:baseline;
+    justify-content:space-between;gap:20px;padding:0 20px;color:var(--dim);font-size:10px}
+  #hud .foot .id{white-space:nowrap;flex:0 0 auto}
+  #hud .foot .keys{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:3px 12px;min-width:0}
+  #hud .foot .keys span{white-space:nowrap}
+  #hud .foot b{color:var(--ink);font-weight:600}
+  @media (max-width:760px){ #hud .foot .id{display:none} }
+
+  /* ---------------- Settings panel ---------------- */
+  #gear{position:fixed;top:14px;right:16px;z-index:8;pointer-events:auto;cursor:pointer;
+    width:32px;height:32px;border-radius:8px;border:1px solid var(--line);background:rgba(9,11,22,.6);
+    color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:15px;
+    transition:all .15s;backdrop-filter:blur(6px)}
+  #gear:hover{border-color:var(--blue);box-shadow:0 0 18px rgba(91,139,255,.35);transform:rotate(45deg)}
+
+  #settings{position:fixed;top:0;right:0;height:100%;width:340px;z-index:9;
+    background:var(--card);backdrop-filter:blur(16px);border-left:1px solid var(--line);
+    transform:translateX(102%);transition:transform .28s cubic-bezier(.4,0,.2,1);
+    display:flex;flex-direction:column;box-shadow:-20px 0 60px rgba(0,0,0,.6)}
+  #settings.open{transform:translateX(0)}
+  #settings header{padding:16px 18px 12px;border-bottom:1px solid var(--line);flex:0 0 auto}
+  #settings header h2{margin:0;font-size:12px;letter-spacing:.28em;color:var(--ink);font-weight:600;text-transform:uppercase}
+  #settings header .presets{display:flex;flex-wrap:wrap;gap:5px;margin-top:11px}
+  #settings header .presets button{flex:1 1 auto;font:inherit;font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+    padding:5px 6px;border-radius:5px;border:1px solid var(--line);background:transparent;color:var(--dim);cursor:pointer;transition:all .12s}
+  #settings header .presets button:hover{color:var(--ink);border-color:var(--blue);background:rgba(91,139,255,.12)}
+  #settings header .presets button.act{color:#fff;border-color:var(--blue);background:rgba(91,139,255,.22)}
+  #srcBox{margin-top:11px}
+  #srcBox .srow{display:flex;align-items:center;gap:6px}
+  #srcBox .slbl{flex:0 0 auto;font-size:9px;letter-spacing:.2em;color:var(--dim);text-transform:uppercase;margin-right:2px}
+  #srcSel{flex:1 1 auto;min-width:0;font:inherit;font-size:9.5px;letter-spacing:.05em;background:rgba(255,255,255,.05);
+    color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:4px 6px;cursor:pointer;outline:none}
+  #srcSel:hover{border-color:var(--blue)}
+  #srcRefresh{flex:0 0 auto;width:26px;height:24px;font:inherit;font-size:12px;border-radius:5px;border:1px solid var(--line);
+    background:transparent;color:var(--dim);cursor:pointer}
+  #srcRefresh:hover{color:var(--ink);border-color:var(--blue)}
+  #srcNote{display:none;margin-top:6px;font-size:9px;color:var(--dim);letter-spacing:.04em;line-height:1.55}
+  #sBody{overflow-y:auto;overflow-x:hidden;flex:1 1 auto;padding:4px 0 30px;scrollbar-width:thin;
+    scrollbar-color:rgba(140,150,200,.3) transparent}
+  #sBody::-webkit-scrollbar{width:7px}
+  #sBody::-webkit-scrollbar-thumb{background:rgba(140,150,200,.28);border-radius:4px}
+  .grp{border-bottom:1px solid rgba(140,150,200,.09)}
+  .grp>h3{margin:0;padding:11px 18px 9px;font-size:9.5px;letter-spacing:.24em;color:var(--dim);
+    text-transform:uppercase;font-weight:600;cursor:pointer;display:flex;justify-content:space-between;align-items:center;
+    user-select:none}
+  .grp>h3:hover{color:var(--ink)}
+  .grp>h3 span{font-size:8px;opacity:.6;transition:transform .2s}
+  .grp.closed>h3 span{transform:rotate(-90deg)}
+  .grp.closed .gc{display:none}
+  .gc{padding:0 18px 12px}
+  .ctl{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 0;font-size:10.5px;color:var(--ink);
+    letter-spacing:.05em}
+  .ctl label{flex:1 1 auto;cursor:pointer;color:#aab0cc}
+  .ctl .val{color:var(--dim);font-size:9.5px;min-width:38px;text-align:right;font-variant-numeric:tabular-nums}
+  /* switch */
+  .sw{position:relative;width:32px;height:17px;flex:0 0 auto;border-radius:9px;background:rgba(255,255,255,.09);
+    border:1px solid var(--line);cursor:pointer;transition:all .16s}
+  .sw::after{content:'';position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;
+    background:var(--dim);transition:all .16s}
+  .sw.on{background:rgba(91,139,255,.32);border-color:rgba(91,139,255,.7)}
+  .sw.on::after{left:17px;background:#dce4ff;box-shadow:0 0 8px rgba(140,180,255,.9)}
+  /* range */
+  .ctl input[type=range]{-webkit-appearance:none;appearance:none;width:118px;height:3px;flex:0 0 auto;
+    background:rgba(255,255,255,.12);border-radius:2px;outline:none;cursor:pointer}
+  .ctl input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;
+    background:var(--ink);box-shadow:0 0 8px rgba(140,180,255,.6);cursor:pointer}
+  .ctl input[type=range]::-moz-range-thumb{width:11px;height:11px;border:0;border-radius:50%;background:var(--ink);cursor:pointer}
+  /* select */
+  .ctl select{font:inherit;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;background:rgba(255,255,255,.05);
+    color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:3px 6px;cursor:pointer;outline:none;width:126px}
+  .ctl select option{background:#0b0e1c}
+  .grp .note{padding:0 0 8px;font-size:9px;color:var(--dim);letter-spacing:.04em;line-height:1.6;text-transform:none}
+  #sFoot{flex:0 0 auto;border-top:1px solid var(--line);padding:11px 18px;display:flex;
+    flex-direction:column;gap:6px}
+  #sFoot .frow{display:flex;gap:6px}
+  #sFoot button{flex:1;font:inherit;font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:7px;
+    border-radius:5px;border:1px solid var(--line);background:transparent;color:var(--dim);cursor:pointer;transition:all .12s}
+  #sFoot button:hover{color:var(--ink);border-color:var(--blue)}
+
+  /* ---------------- Start overlay ---------------- */
+  #overlay{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;
+    background:rgba(4,5,11,.6);backdrop-filter:blur(8px);cursor:pointer}
+  #panel{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:34px 40px 28px;text-align:center;max-width:min(92vw,470px);cursor:default;
+    box-shadow:0 24px 90px rgba(0,0,0,.7)}
+  #panel h1{margin:0;font-size:27px;letter-spacing:.34em;font-weight:600;color:var(--ink)}
+  #panel .tag{margin:9px 0 24px;color:var(--dim);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;line-height:1.7}
+  .row{display:flex;flex-direction:column;gap:9px}
+  .btn{pointer-events:auto;cursor:pointer;background:transparent;color:var(--ink);
+    border:1px solid var(--line);border-radius:7px;padding:12px 18px;
+    font:inherit;font-size:12px;letter-spacing:.14em;text-transform:uppercase;transition:all .15s}
+  .btn:hover{border-color:var(--blue);box-shadow:0 0 18px rgba(91,139,255,.25)}
+  .btn.primary{border-color:rgba(91,139,255,.55);background:rgba(40,60,160,.18)}
+  .btn.primary:hover{background:rgba(50,80,220,.3);box-shadow:0 0 26px rgba(91,139,255,.45)}
+  .btn small{display:block;margin-top:4px;font-size:9px;letter-spacing:.08em;color:var(--dim);text-transform:none}
+  .btn small.warn{color:var(--amber)}
+  .mrow{display:flex;gap:9px}
+  .mrow .btn{flex:1 1 auto;white-space:nowrap}
+  .btnsel{flex:0 1 200px;min-width:0;font:inherit;font-size:10.5px;letter-spacing:.04em;background:rgba(255,255,255,.04);
+    color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:0 10px;cursor:pointer;outline:none}
+  .btnsel:hover{border-color:var(--blue)}
+  .btnsel option,#srcSel option,#srcSel optgroup{background:#0b0e1c;color:var(--ink)}
+  #panel .hint{margin-top:17px;font-size:9.5px;color:var(--dim);letter-spacing:.1em;line-height:1.8}
+  #err{display:none;margin-top:12px;font-size:10px;color:var(--red);letter-spacing:.06em;text-transform:none}
+  #dropHint{position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;
+    pointer-events:none;border:2px dashed rgba(91,139,255,.6);background:rgba(20,30,80,.25);
+    color:var(--ink);font-size:13px;letter-spacing:.2em;text-transform:uppercase}
+  #toast{position:fixed;left:50%;bottom:52px;transform:translateX(-50%);z-index:12;pointer-events:none;
+    background:rgba(9,11,22,.9);border:1px solid var(--line);border-radius:7px;padding:8px 16px;
+    color:var(--ink);font-size:10px;letter-spacing:.14em;text-transform:uppercase;opacity:0;transition:opacity .25s}
+  #toast.show{opacity:1}
+  #toast.long{width:max-content;max-width:min(86vw,620px);text-align:center;line-height:1.6;
+    text-transform:none;letter-spacing:.05em;color:var(--amber)}
+  @media (max-width:640px){ #settings{width:100%} }
+</style>
+</head>
+<body>
+<canvas id="viz"></canvas>
+
+<div id="hud" aria-hidden="true">
+  <div class="tl">
+    <div class="title">
+      <span class="rgbdot" style="background:var(--red);color:var(--red)"></span><span class="rgbdot" style="background:var(--green);color:var(--green)"></span><span class="rgbdot" style="background:var(--blue);color:var(--blue)"></span>
+      <b>PRISM v4</b> · SPECTRAL ORRERY
+    </div>
+    <div class="sub"><span id="src">SOURCE —</span> · <b id="fps">—</b> FPS · <b id="dB">— dB</b> · <b id="bpm">— BPM</b></div>
+    <div class="sub" id="feat">CENTROID — · FLUX —</div>
+    <div class="meters">
+      <div class="meter"><span class="lbl">SUB</span><div class="bar" id="mSub"><i></i><u></u></div></div>
+      <div class="meter"><span class="lbl">BASS</span><div class="bar" id="mBass"><i></i><u></u></div></div>
+      <div class="meter"><span class="lbl">MID</span><div class="bar" id="mMid"><i></i><u></u></div></div>
+      <div class="meter"><span class="lbl">HIGH</span><div class="bar" id="mHi"><i></i><u></u></div></div>
+      <div class="meter"><span class="lbl">AIR</span><div class="bar" id="mTreb"><i></i><u></u></div></div>
+    </div>
+  </div>
+  <div class="foot">
+    <div class="id"><b id="presetName">HYPERDRIVE</b> · <span id="layerCount">—</span> layers</div>
+    <div class="keys">
+      <span><b>M</b> mic</span><span><b>A</b> system</span><span><b>T</b> tab</span><span><b>D</b> demo</span><span>drop a file</span>
+      <span><b>C</b> settings</span><span><b>H</b> hud</span><span><b>N</b>/<b>P</b> preset</span>
+      <span><b>R</b> random</span><span><b>F</b> full</span><span><b>S</b> png</span><span><b>0</b> mute</span>
+    </div>
+  </div>
+</div>
+
+<div id="gear" title="Settings (C)">⚙</div>
+
+<aside id="settings">
+  <header>
+    <h2>Prism Control</h2>
+    <div class="presets" id="presetRow"></div>
+    <div id="srcBox">
+      <div class="srow">
+        <span class="slbl">Source</span>
+        <select id="srcSel" title="Audio source"></select>
+        <button id="srcRefresh" title="Rescan input devices">↻</button>
+      </div>
+      <div id="srcNote"></div>
+    </div>
+  </header>
+  <div id="sBody"></div>
+  <div id="sFoot">
+    <div class="frow">
+    <button id="btnRandom">Randomise</button>
+    <button id="btnAllOn">All on</button>
+    <button id="btnAllOff">All off</button>
+    <button id="btnReset">Reset</button>
+    </div>
+    <div class="frow">
+      <button id="btnSaveCfg">⤓ Save settings</button>
+      <button id="btnLoadCfg">⤒ Load settings</button>
+      <button id="btnCopyCfg">Copy JSON</button>
+    </div>
+  </div>
+</aside>
+
+<div id="dropHint">Release to load audio</div>
+<div id="toast"></div>
+
+<div id="overlay">
+  <div id="panel">
+    <h1>PRISM v4</h1>
+    <div class="tag">spectral orrery — orbits · rainbow strings · living nebula</div>
+    <div class="row">
+      <button class="btn" id="btn-demo" data-kind="demo">▶ Demo signal (test source)</button>
+      <button class="btn" id="btn-sys" data-kind="sys">◉ Entire desktop audio<small id="sysNote">all desktop sound · no screen sharing</small></button>
+      <div class="mrow">
+        <button class="btn" id="btn-mic" data-kind="mic">● Microphone</button>
+        <select class="btnsel" id="micSel" title="Input device"></select>
+      </div>
+      <button class="btn" id="btn-tab" data-kind="tab">◧ Browser tab audio</button>
+      <button class="btn" id="btn-file" data-kind="file">⤒ Load audio file</button>
+    </div>
+    <div class="hint">click outside for the demo signal · or drop a song anywhere<br>press <b>C</b> for settings — switch source there any time</div>
+    <div id="err"></div>
+  </div>
+</div>
+<input type="file" id="file" accept="audio/*" hidden>
+<input type="file" id="cfgfile" accept=".json,application/json" hidden>
+
+<script>
+(() => {
+'use strict';
+window.addEventListener('error', e => { (window.__errs = window.__errs || []).push(String(e.message)); });
+
+/* =====================================================================
+   PRISM v3 — settings schema
+   Every visual and audio parameter lives here. The control panel is
+   generated from this schema, so "toggleable" is structural rather than
+   something each layer has to remember to implement.
+   ===================================================================== */
+const SCHEMA = [
+  { g:'Scene', items:[
+    { k:'quality',    t:'sel',  label:'Render scale', opts:[['0.75','Performance'],['1','Native'],['1.25','Supersample']] },
+    { k:'autoQuality',t:'bool', label:'Auto-throttle' },
+    { k:'trail',      t:'num',  label:'Trail persist', min:0.02, max:0.6, step:0.01 },
+    { k:'motion',     t:'num',  label:'Motion speed', min:0.1, max:2.5, step:0.05 },
+    { k:'shake',      t:'num',  label:'Bass shake', min:0, max:2.5, step:0.05 },
+    { k:'shakeRot',   t:'num',  label:'  shake roll', min:0, max:1.5, step:0.05 },
+    { k:'reactivity', t:'num',  label:'Reactivity', min:0.2, max:3, step:0.05 },
+  ]},
+  { g:'Background', items:[
+    { k:'nebula',     t:'bool', label:'Nebula field' },
+    { k:'nebulaAmt',  t:'num',  label:'  intensity', min:0, max:2, step:0.05 },
+    { k:'nebulaRes',  t:'sel',  label:'  resolution', opts:[['96','Coarse'],['144','Medium'],['200','Fine'],['288','Ultra']] },
+    { k:'nebulaFlow', t:'num',  label:'  flow speed', min:0, max:3, step:0.05 },
+    { k:'nebulaWarp', t:'num',  label:'  domain warp', min:0, max:3, step:0.05 },
+    { k:'clouds',     t:'bool', label:'Colour clouds' },
+    { k:'stars',      t:'bool', label:'Parallax stars' },
+    { k:'starCount',  t:'num',  label:'  count', min:60, max:1400, step:20 },
+    { k:'grid',       t:'bool', label:'Reactive grid' },
+    { k:'gridWarp',   t:'num',  label:'  beat ripple', min:0, max:2, step:0.05 },
+    { k:'aurora',     t:'bool', label:'Aurora curtains' },
+    { k:'horizon',    t:'bool', label:'Horizon glow' },
+    { k:'bgCentreDim',t:'num',  label:'Centre hold-back', min:0, max:0.9, step:0.02 },
+  ]},
+  { g:'Spectrum bars', items:[
+    { k:'bars',       t:'bool', label:'Linear bars' },
+    { k:'barCount',   t:'num',  label:'  bar count', min:32, max:640, step:8 },
+    { k:'barGain',    t:'num',  label:'  height', min:0.2, max:2.5, step:0.05 },
+    { k:'barDisp',    t:'num',  label:'  RGB dispersion', min:0, max:3, step:0.05 },
+    { k:'barMirror',  t:'bool', label:'  mirror' },
+    { k:'barCaps',    t:'bool', label:'  peak caps' },
+    { k:'barGlowTop', t:'bool', label:'  tip sparks' },
+    { k:'radial',     t:'bool', label:'Radial ring bars' },
+    { k:'radialCount',t:'num',  label:'  ring bars', min:32, max:512, step:8 },
+    { k:'radialR',    t:'num',  label:'  ring radius', min:0.08, max:0.5, step:0.01 },
+    { k:'radialSpin', t:'num',  label:'  spin', min:-2, max:2, step:0.05 },
+    { k:'radialIn',   t:'bool', label:'  inward mirror' },
+  ]},
+  { g:'Orbits', items:[
+    { k:'orbits',     t:'bool', label:'Orbital system' },
+    { k:'orbitCount', t:'num',  label:'  shells', min:1, max:14, step:1 },
+    { k:'orbitBodies',t:'num',  label:'  bodies / shell', min:1, max:6, step:1 },
+    { k:'orbitSpeed', t:'num',  label:'  speed', min:0, max:3, step:0.05 },
+    { k:'orbitTilt',  t:'num',  label:'  tilt', min:0, max:1.45, step:0.01 },
+    { k:'orbitEcc',   t:'num',  label:'  eccentricity', min:0, max:0.72, step:0.01 },
+    { k:'orbitPrec',  t:'num',  label:'  precession', min:0, max:3, step:0.05 },
+    { k:'orbitPath',  t:'bool', label:'  draw paths' },
+    { k:'orbitTrail', t:'bool', label:'  comet trails' },
+    { k:'orbitBreath',t:'num',  label:'  bass breathing', min:0, max:2, step:0.05 },
+    { k:'orbitDepth', t:'num',  label:'  depth shading', min:0, max:2, step:0.05 },
+    { k:'orbitCam',   t:'num',  label:'  camera drift', min:0, max:2, step:0.05 },
+    { k:'orbitCore',  t:'num',  label:'  core glow', min:0, max:2, step:0.05 },
+    { k:'shock',      t:'bool', label:'Beat shockwaves' },
+    { k:'shockAb',    t:'num',  label:'  chromatic split', min:0, max:3, step:0.05 },
+  ]},
+  { g:'Rainbow strings', items:[
+    { k:'strings',    t:'bool', label:'Waveform strings' },
+    { k:'stringCount',t:'num',  label:'  strings', min:1, max:9, step:1 },
+    { k:'stringW',    t:'num',  label:'  thickness', min:0.5, max:9, step:0.1 },
+    { k:'stringGlow', t:'num',  label:'  glow passes', min:0, max:4, step:1 },
+    { k:'stringAmp',  t:'num',  label:'  amplitude', min:0.1, max:2.5, step:0.05 },
+    { k:'stringMirror',t:'bool',label:'  mirror' },
+    { k:'stringWrap', t:'bool', label:'  wrap to orbit' },
+    { k:'lissajous',  t:'bool', label:'Phase scope (X/Y)' },
+  ]},
+  { g:'Particles', items:[
+    { k:'particles',  t:'bool', label:'Particles' },
+    { k:'partMax',    t:'num',  label:'  max count', min:200, max:9000, step:100 },
+    { k:'partRate',   t:'num',  label:'  emission', min:0.1, max:4, step:0.05 },
+    { k:'partGrav',   t:'num',  label:'  centre pull', min:-1.5, max:1.5, step:0.05 },
+    { k:'partSpark',  t:'bool', label:'  beat bursts' },
+  ]},
+  { g:'Colour', items:[
+    { k:'theme',      t:'sel',  label:'Theme', opts:[['purple','Dark purple'],['midnight','Midnight blue'],['orchid','Orchid'],['violet','Deep violet'],['ice','Ice'],['ember','Ember'],['rose','Rose'],['slate','Slate'],['forest','Forest (green)'],['custom','Custom hue'],['none','None (raw palette)']] },
+    { k:'themeAmt',   t:'num',  label:'  theme pull', min:0, max:1, step:0.02 },
+    { k:'themeHue',   t:'num',  label:'  custom hue °', min:0, max:360, step:1 },
+    { k:'avoidGreen', t:'bool', label:'  avoid green' },
+    { k:'palette',    t:'sel',  label:'Palette', opts:[['prism','RGB Prism'],['rainbow','Full rainbow'],['sunset','Sunset'],['ice','Ice'],['toxic','Toxic'],['ember','Ember'],['spectral','Spectral'],['mono','Mono drift']] },
+    { k:'hueSpeed',   t:'num',  label:'Hue drift °/s', min:-90, max:90, step:1 },
+    { k:'hueSpread',  t:'num',  label:'Spread across °', min:0, max:720, step:5 },
+    { k:'sat',        t:'num',  label:'Saturation', min:0, max:100, step:1 },
+    { k:'light',      t:'num',  label:'Lightness', min:20, max:80, step:1 },
+    { k:'centroidHue',t:'num',  label:'Brightness→hue', min:0, max:2, step:0.05 },
+    { k:'beatHue',    t:'num',  label:'Beat hue kick', min:0, max:2, step:0.05 },
+    { k:'bandTint',   t:'bool', label:'Band-tinted layers' },
+  ]},
+  { g:'Post-processing', items:[
+    { k:'exposure',   t:'num',  label:'Exposure', min:0.2, max:1.6, step:0.05 },
+    { k:'heroOpacity',t:'num',  label:'Bars/string opacity', min:0.1, max:1, step:0.02 },
+    { k:'heroGlow',   t:'num',  label:'Bars/string glow', min:0, max:1, step:0.02 },
+    { k:'bloom',      t:'num',  label:'Bloom', min:0, max:2.5, step:0.05 },
+    { k:'bloomRad',   t:'num',  label:'  radius', min:1, max:22, step:0.5 },
+    { k:'bloomLv',    t:'num',  label:'  levels', min:1, max:4, step:1 },
+    { k:'bloomThr',   t:'num',  label:'  threshold', min:0.8, max:3, step:0.05 },
+    { k:'vignette',   t:'num',  label:'Vignette', min:0, max:1.2, step:0.05 },
+    { k:'aberration', t:'num',  label:'Edge aberration', min:0, max:4, step:0.05 },
+    { k:'grain',      t:'num',  label:'Film grain', min:0, max:0.35, step:0.005 },
+    { k:'scanlines',  t:'num',  label:'Scanlines', min:0, max:0.5, step:0.01 },
+    { k:'pulseZoom',  t:'num',  label:'Beat punch', min:0, max:1.5, step:0.05 },
+  ]},
+  { g:'Audio', items:[
+    { k:'monitor',    t:'bool', label:'Monitor output (sound)' },
+    { k:'volume',     t:'num',  label:'  volume', min:0, max:1, step:0.01 },
+    { k:'fft',        t:'sel',  label:'FFT size', opts:[['1024','1024'],['2048','2048'],['4096','4096'],['8192','8192'],['16384','16384']] },
+    { k:'smoothing',  t:'num',  label:'FFT smoothing', min:0, max:0.95, step:0.01 },
+    { k:'gain',       t:'num',  label:'Input gain', min:0.2, max:4, step:0.05 },
+    { k:'gamma',      t:'num',  label:'Spectrum gamma', min:0.6, max:2.6, step:0.05 },
+    { k:'contrast',   t:'num',  label:'Peak contrast', min:0, max:3, step:0.05 },
+    { k:'tilt',       t:'num',  label:'Treble tilt', min:0, max:1.5, step:0.05 },
+    { k:'floorDb',    t:'num',  label:'Noise floor dB', min:-110, max:-45, step:1 },
+    { k:'ceilDb',     t:'num',  label:'Ceiling dB', min:-40, max:-3, step:1 },
+    { k:'attack',     t:'num',  label:'Bar attack', min:0.05, max:1, step:0.01 },
+    { k:'release',    t:'num',  label:'Bar release', min:0.6, max:0.99, step:0.005 },
+    { k:'fMin',       t:'num',  label:'Low cut Hz', min:16, max:200, step:2 },
+    { k:'fMax',       t:'num',  label:'High cut Hz', min:4000, max:20000, step:250 },
+    { k:'agc',        t:'bool', label:'Normalise to loudest' },
+  ]},
+  { g:'Interface', items:[
+    { k:'hud',        t:'bool', label:'Show HUD' },
+    { k:'showFps',    t:'bool', label:'  fps / stats' },
+  ]},
+];
+
+const DEFAULTS = {
+  quality:'1', autoQuality:true, trail:0.14, motion:1, reactivity:1, shake:0.85, shakeRot:0.5,
+  nebula:true, nebulaAmt:1, nebulaRes:'144', nebulaFlow:1, nebulaWarp:1.2,
+  clouds:true, stars:true, starCount:520, grid:true, gridWarp:1, aurora:true, horizon:true,
+  bgCentreDim:0.45,
+  bars:true, barCount:448, barGain:0.6, barDisp:1, barMirror:true, barCaps:true, barGlowTop:true,
+  radial:true, radialCount:192, radialR:0.2, radialSpin:0.25, radialIn:true,
+  orbits:true, orbitCount:5, orbitBodies:2, orbitSpeed:1, orbitTilt:0.72, orbitEcc:0.34,
+  orbitPrec:1, orbitPath:true, orbitTrail:true, orbitBreath:1,
+  orbitDepth:1, orbitCam:1, orbitCore:0.75, shock:true, shockAb:0.6,
+  strings:true, stringCount:1, stringW:3.4, stringGlow:2, stringAmp:1, stringMirror:true,
+  stringWrap:false, lissajous:false,
+  particles:true, partMax:1600, partRate:0.8, partGrav:0.35, partSpark:true,
+  theme:'purple', themeAmt:0.55, themeHue:278, avoidGreen:true,
+  palette:'prism', hueSpeed:9, hueSpread:300, sat:76, light:54, centroidHue:0.8, beatHue:0.5, bandTint:true,
+  heroOpacity:0.92, heroGlow:0.3, exposure:0.82, bloom:0.6, bloomRad:8, bloomLv:3, bloomThr:1.9, vignette:0.55, aberration:1, grain:0.05,
+  scanlines:0, pulseZoom:0.55,
+  monitor:true, volume:0.7, fft:'4096', smoothing:0.7, gain:1, gamma:1.5,
+  contrast:1.15, tilt:0.35, floorDb:-78, ceilDb:-18,
+  attack:0.5, release:0.86, fMin:24, fMax:16000, agc:true,
+  hud:true, showFps:true,
+};
+
+const PRESETS = {
+  /* Flagship. Everything on, but restrained: the point is that no single
+     layer dominates and the prominent tones stay readable. */
+  hyperdrive: { name:'Hyperdrive', cfg:{
+                  theme:'purple', themeAmt:0.55, palette:'prism', hueSpeed:9, hueSpread:300,
+                  sat:76, light:54, barCount:448, barGain:0.6, barDisp:1,
+                  orbitCount:5, orbitBodies:2, orbitTilt:0.72, orbitEcc:0.34, orbitSpeed:0.9,
+                  radialCount:192, radialR:0.2, stringCount:1, stringW:3.4, stringGlow:2,
+                  partMax:1600, partRate:0.8, shock:true, shockAb:0.6,
+                  nebulaAmt:1, nebulaRes:'144', exposure:0.82, bloom:0.6, bloomThr:1.9,
+                  vignette:0.55, grain:0.05, trail:0.14 } },
+
+  /* The v2 look, faithfully: no theme pull, no atmosphere, hard prism split. */
+  classic:    { name:'Classic v2', cfg:{
+                  theme:'none', themeAmt:0, palette:'prism', hueSpeed:0, hueSpread:240,
+                  sat:82, light:55, nebula:false, clouds:false, stars:false, aurora:false,
+                  horizon:false, grid:true, gridWarp:0, radial:false, orbits:false,
+                  particles:false, shock:true, shockAb:0, barCount:96, barGain:1, barDisp:1,
+                  stringCount:1, stringW:1.4, stringGlow:0, exposure:1, bloom:0,
+                  vignette:0, aberration:0, grain:0, pulseZoom:0, trail:0.16 } },
+
+  /* Atmosphere is the subject. Bars off, orbits wide and slow, deep field. */
+  nebula:     { name:'Deep field', cfg:{
+                  theme:'orchid', themeAmt:0.7, palette:'spectral', hueSpeed:4, hueSpread:260,
+                  sat:70, light:52, nebulaAmt:1.6, nebulaRes:'200', nebulaFlow:0.55,
+                  nebulaWarp:2.1, clouds:true, starCount:900, grid:false, aurora:true,
+                  bars:false, radial:true, radialCount:256, radialR:0.26, radialSpin:0.12,
+                  orbitCount:9, orbitBodies:2, orbitTilt:1.05, orbitEcc:0.5, orbitSpeed:0.55,
+                  orbitPrec:0.7, stringCount:1, stringW:2.2, stringGlow:2, stringAmp:0.8,
+                  partMax:3000, partRate:0.7, partGrav:0.5, shockAb:0.4,
+                  exposure:0.78, bloom:1.1, bloomRad:13, bloomThr:2.1, vignette:0.8, trail:0.09 } },
+
+  /* The orrery reads as a mechanism: slow, precise, high contrast, cold. */
+  orrery:     { name:'Orrery', cfg:{
+                  theme:'midnight', themeAmt:0.72, palette:'ice', hueSpeed:5, hueSpread:200,
+                  sat:68, light:56, bars:false, nebulaAmt:0.55, nebulaRes:'144', clouds:true,
+                  stars:true, starCount:420, grid:true, gridWarp:1.2, aurora:false,
+                  radial:true, radialCount:288, radialR:0.42, radialSpin:0.1, radialIn:false,
+                  orbitCount:11, orbitBodies:3, orbitEcc:0.46, orbitTilt:0.95, orbitSpeed:0.7,
+                  orbitPrec:1.4, orbitPath:true, orbitTrail:true, orbitBreath:1.2,
+                  stringCount:1, stringW:2, stringGlow:1, stringWrap:true, stringAmp:0.7,
+                  partMax:2200, partRate:0.6, shockAb:0.5,
+                  exposure:0.8, bloom:0.85, bloomThr:2.0, vignette:0.7, pulseZoom:0.6, trail:0.11 } },
+
+  /* The waveform is the subject: dense quiet bars as a bed, string on top. */
+  strings:    { name:'Strings', cfg:{
+                  theme:'orchid', themeAmt:0.45, palette:'rainbow', hueSpeed:16, hueSpread:420,
+                  sat:80, light:56, bars:true, barCount:576, barGain:0.4, barDisp:0.6,
+                  barGlowTop:false, radial:false, orbits:false, nebulaAmt:0.7, clouds:true,
+                  stars:true, grid:false, aurora:true,
+                  stringCount:3, stringW:4, stringGlow:3, stringAmp:1.35, stringMirror:true,
+                  lissajous:true, partMax:1800, partRate:0.9, shockAb:0.3,
+                  exposure:0.8, bloom:1.2, bloomRad:11, bloomThr:2.0, vignette:0.6, trail:0.08 } },
+
+  /* Restraint: almost monochrome, few elements, everything legible. */
+  minimal:    { name:'Minimal', cfg:{
+                  theme:'slate', themeAmt:0.85, palette:'mono', hueSpeed:3, hueSpread:60,
+                  sat:46, light:58, nebula:false, clouds:false, stars:true, starCount:220,
+                  aurora:false, grid:false, horizon:false, bars:true, barCount:256, barGain:0.5,
+                  barDisp:0.3, barCaps:true, barGlowTop:false, radial:false,
+                  orbits:true, orbitCount:3, orbitBodies:1, orbitEcc:0.28, orbitTilt:0.6,
+                  orbitPath:true, orbitTrail:false, particles:false, shock:true, shockAb:0.2,
+                  stringCount:1, stringW:2, stringGlow:1,
+                  exposure:0.88, bloom:0.35, bloomThr:2.2, grain:0.02, vignette:0.7,
+                  pulseZoom:0.2, trail:0.18 } },
+
+  /* Deliberately over the top — the one preset allowed to be too much. */
+  chaos:      { name:'Chaos', cfg:{
+                  theme:'ember', themeAmt:0.3, palette:'toxic', hueSpeed:38, hueSpread:600,
+                  sat:88, light:57, barCount:640, barGain:0.75, barDisp:1.6,
+                  radial:true, radialCount:384, radialSpin:0.9,
+                  orbitCount:13, orbitBodies:4, orbitEcc:0.6, orbitPrec:2.2, orbitSpeed:1.5,
+                  stringCount:5, stringW:3.2, stringGlow:3, lissajous:true,
+                  partMax:5000, partRate:2, shockAb:1.4,
+                  nebulaAmt:1.3, nebulaFlow:1.8, exposure:0.72, bloom:1.5, bloomRad:12,
+                  bloomThr:1.8, aberration:2, pulseZoom:1, motion:1.4, trail:0.07 } },
+};
+
+/* ---- config store ---- */
+const LSKEY = 'prism.v4.desktop.cfg';
+const CFG = Object.assign({}, DEFAULTS);
+let curPreset = 'hyperdrive';
+const NUMKEYS = new Set();
+SCHEMA.forEach(g => g.items.forEach(it => { if (it.t === 'num') NUMKEYS.add(it.k); }));
+
+function loadCfg() {
+  try {
+    const raw = localStorage.getItem(LSKEY);
+    if (!raw) return;
+    const o = JSON.parse(raw);
+    if (o && typeof o === 'object') {
+      if (typeof o.__preset === 'string' && PRESETS[o.__preset]) curPreset = o.__preset;
+      for (const k in DEFAULTS) if (k in o) CFG[k] = coerce(k, o[k]);
+    }
+  } catch (e) {}
+}
+function saveCfg() {
+  try { localStorage.setItem(LSKEY, JSON.stringify(Object.assign({ __preset: curPreset }, CFG))); } catch (e) {}
+}
+function coerce(k, v) {
+  const d = DEFAULTS[k];
+  if (typeof d === 'boolean') return !!v;
+  if (typeof d === 'number') { const n = +v; return Number.isFinite(n) ? n : d; }
+  return String(v);
+}
+function applyPreset(name) {
+  const p = PRESETS[name]; if (!p) return;
+  Object.assign(CFG, DEFAULTS, p.cfg);
+  curPreset = name;
+  rebuildPanel(); onCfgChanged(true); saveCfg();
+  toast(p.name);
+}
+loadCfg();
+
+/* =====================================================================
+   Control panel — generated from SCHEMA
+   ===================================================================== */
+const sBody = document.getElementById('sBody');
+const presetRow = document.getElementById('presetRow');
+const settingsEl = document.getElementById('settings');
+const openGroups = new Set(['Scene', 'Background', 'Orbits', 'Colour']);
+let panelRefs = [];
+
+function rebuildPanel() {
+  sBody.innerHTML = ''; panelRefs = [];
+  for (const grp of SCHEMA) {
+    const wrap = document.createElement('div');
+    wrap.className = 'grp' + (openGroups.has(grp.g) ? '' : ' closed');
+    const h = document.createElement('h3');
+    h.innerHTML = grp.g + '<span>▾</span>';
+    h.addEventListener('click', () => {
+      wrap.classList.toggle('closed');
+      wrap.classList.contains('closed') ? openGroups.delete(grp.g) : openGroups.add(grp.g);
+    });
+    wrap.appendChild(h);
+    const body = document.createElement('div'); body.className = 'gc';
+    for (const it of grp.items) body.appendChild(makeCtl(it));
+    wrap.appendChild(body);
+    sBody.appendChild(wrap);
+  }
+  syncPanel();
+}
+
+function makeCtl(it) {
+  const row = document.createElement('div'); row.className = 'ctl';
+  const lab = document.createElement('label');
+  lab.textContent = it.label.replace(/^ {2}/, '↳ ');
+  row.appendChild(lab);
+
+  if (it.t === 'bool') {
+    const sw = document.createElement('div'); sw.className = 'sw';
+    sw.addEventListener('click', () => { setCfg(it.k, !CFG[it.k]); });
+    row.appendChild(sw);
+    panelRefs.push({ it, sync: () => sw.classList.toggle('on', !!CFG[it.k]) });
+  } else if (it.t === 'num') {
+    const val = document.createElement('span'); val.className = 'val';
+    const inp = document.createElement('input');
+    inp.type = 'range'; inp.min = it.min; inp.max = it.max; inp.step = it.step;
+    inp.addEventListener('input', () => { setCfg(it.k, +inp.value); });
+    row.appendChild(val); row.appendChild(inp);
+    panelRefs.push({ it, sync: () => {
+      inp.value = CFG[it.k];
+      val.textContent = it.step >= 1 ? String(Math.round(CFG[it.k])) : (+CFG[it.k]).toFixed(2);
+    }});
+  } else {
+    const sel = document.createElement('select');
+    for (const [v, t] of it.opts) { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); }
+    sel.addEventListener('change', () => { setCfg(it.k, sel.value); });
+    row.appendChild(sel);
+    panelRefs.push({ it, sync: () => { sel.value = String(CFG[it.k]); } });
+  }
+  return row;
+}
+function syncPanel() { for (const r of panelRefs) r.sync(); }
+
+let cfgDirty = false;
+function setCfg(k, v) {
+  CFG[k] = coerce(k, v);
+  curPreset = 'custom';
+  syncPanel(); markPresetRow(); onCfgChanged(false); cfgDirty = true;
+}
+let saveTimer = 0;
+function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(saveCfg, 400); }
+
+function buildPresetRow() {
+  presetRow.innerHTML = '';
+  for (const key in PRESETS) {
+    const b = document.createElement('button');
+    b.textContent = PRESETS[key].name; b.dataset.k = key;
+    b.addEventListener('click', () => applyPreset(key));
+    presetRow.appendChild(b);
+  }
+  markPresetRow();
+}
+function markPresetRow() {
+  presetRow.querySelectorAll('button').forEach(b => b.classList.toggle('act', b.dataset.k === curPreset));
+  const pn = document.getElementById('presetName');
+  pn.textContent = PRESETS[curPreset] ? PRESETS[curPreset].name : 'Custom';
+}
+
+const toastEl = document.getElementById('toast');
+let toastTimer = 0;
+function toast(msg, ms) {
+  toastEl.textContent = msg; toastEl.classList.add('show');
+  toastEl.classList.toggle('long', !!ms);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms || 1300);
+}
+function togglePanel(force) {
+  const open = force !== undefined ? force : !settingsEl.classList.contains('open');
+  settingsEl.classList.toggle('open', open);
+  if (open) refreshDevices();
+}
+document.getElementById('gear').addEventListener('click', () => togglePanel());
+document.getElementById('btnReset').addEventListener('click', () => { applyPreset('hyperdrive'); });
+document.getElementById('btnAllOn').addEventListener('click', () => { toggleAllLayers(true); });
+document.getElementById('btnAllOff').addEventListener('click', () => { toggleAllLayers(false); });
+document.getElementById('btnRandom').addEventListener('click', () => randomise());
+
+/* ---- settings export / import -------------------------------------
+   localStorage already persists between reloads, but it is per-origin
+   and invisible: a settings FILE can be kept, diffed and moved between
+   machines. Export writes every key in DEFAULTS, so a file stays
+   loadable even after new settings are added to the schema. */
+function settingsJSON() {
+  const cfg = {};
+  for (const k in DEFAULTS) cfg[k] = CFG[k];
+  return JSON.stringify({ __prism: 'v4', __preset: curPreset,
+    __saved: new Date().toISOString(), cfg }, null, 2);
+}
+function saveSettings() {
+  const blob = new Blob([settingsJSON()], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const tag = PRESETS[curPreset] ? curPreset : 'custom';
+  const d = new Date(), pad = n => String(n).padStart(2, '0');
+  a.download = 'prism-v4-settings-' + tag + '-' +
+    d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' +
+    pad(d.getHours()) + pad(d.getMinutes()) + '.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast('Settings saved');
+}
+function applySettingsObj(o) {
+  const src = (o && typeof o === 'object' && o.cfg && typeof o.cfg === 'object') ? o.cfg : o;
+  if (!src || typeof src !== 'object') { toast('Not a settings file'); return; }
+  let n = 0;
+  for (const k in DEFAULTS) if (k in src) { CFG[k] = coerce(k, src[k]); n++; }
+  if (!n) { toast('No known settings in that file'); return; }
+  curPreset = (o && typeof o.__preset === 'string' && PRESETS[o.__preset]) ? o.__preset : 'custom';
+  rebuildPanel(); markPresetRow(); onCfgChanged(true); saveCfg();
+  toast('Loaded ' + n + ' settings');
+}
+function loadSettingsFile(f) {
+  f.text().then(t => { try { applySettingsObj(JSON.parse(t)); }
+                       catch (e) { toast('Could not read that file'); } });
+}
+document.getElementById('btnSaveCfg').addEventListener('click', saveSettings);
+document.getElementById('btnLoadCfg').addEventListener('click',
+  () => document.getElementById('cfgfile').click());
+document.getElementById('cfgfile').addEventListener('change', e => {
+  if (e.target.files && e.target.files[0]) loadSettingsFile(e.target.files[0]);
+  e.target.value = '';
+});
+document.getElementById('btnCopyCfg').addEventListener('click', () => {
+  const t = settingsJSON();
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t).then(() => toast('JSON copied'), () => toast('Copy blocked'));
+  } else toast('Copy unavailable');
+});
+
+const LAYER_KEYS = ['nebula','clouds','stars','grid','aurora','horizon','bars','radial','orbits','orbitPath',
+                    'orbitTrail','shock','strings','lissajous','particles','partSpark','barMirror','barCaps','barGlowTop','radialIn'];
+function toggleAllLayers(on) {
+  for (const k of LAYER_KEYS) CFG[k] = on;
+  curPreset = 'custom'; syncPanel(); markPresetRow(); onCfgChanged(true); saveCfg();
+  toast(on ? 'All layers on' : 'All layers off');
+}
+function randomise() {
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  for (const grp of SCHEMA) for (const it of grp.items) {
+    if (it.k === 'monitor' || it.k === 'volume' || it.k === 'hud' || it.k === 'showFps' ||
+        it.k === 'autoQuality' || it.k === 'quality' || it.k === 'fft') continue;
+    if (it.t === 'bool') CFG[it.k] = Math.random() < 0.72;
+    else if (it.t === 'num') {
+      let v = rnd(it.min, it.max);
+      if (it.step >= 1) v = Math.round(v / it.step) * it.step;
+      CFG[it.k] = v;
+    } else if (it.t === 'sel' && it.k === 'palette') {
+      CFG[it.k] = it.opts[(Math.random() * it.opts.length) | 0][0];
+    }
+  }
+  CFG.trail = rnd(0.06, 0.24); CFG.strings = true; CFG.bloom = rnd(0.5, 1.8);
+  CFG.partMax = Math.min(CFG.partMax, 5000);
+  curPreset = 'custom'; syncPanel(); markPresetRow(); onCfgChanged(true); saveCfg();
+  toast('Randomised');
+}
+buildPresetRow(); rebuildPanel();
+
+/* =====================================================================
+   Colour — HSL palettes with animated hue drift
+   ===================================================================== */
+function hsl2rgb(h, s, l) {                       // h deg, s/l 0..1 -> [0..255]
+  h = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; } else if (h < 120) { r = x; g = c; }
+  else if (h < 180) { g = c; b = x; } else if (h < 240) { g = x; b = c; }
+  else if (h < 300) { r = x; b = c; } else { r = c; b = x; }
+  return [(r + m) * 255 | 0, (g + m) * 255 | 0, (b + m) * 255 | 0];
+}
+
+// palette(t) -> hue in degrees, for t in 0..1 across the spectrum
+const PALETTES = {
+  prism:    (t, base, spread) => base + t * Math.min(spread, 240),
+  rainbow:  (t, base, spread) => base + t * spread,
+  sunset:   (t, base) => base + 300 + t * 110,                     // magenta -> gold
+  ice:      (t, base) => base + 170 + t * 100,                     // teal -> indigo
+  toxic:    (t, base) => base + 70 + t * 190,                      // lime -> violet
+  ember:    (t, base) => base + 350 + t * 70,                      // red -> amber
+  spectral: (t, base) => base + 260 - t * 250,                     // violet -> red
+  mono:     (t, base) => base + t * 26,
+};
+/* A theme anchors the whole colour ramp around one hue family and
+   narrows its spread. That is what stops every layer being a full
+   360-degree rainbow: at themeAmt 1 the ramp keeps its internal shape
+   but only spans about half as much hue, centred on the theme anchor,
+   so the frame reads as one tonal family with colour accents rather
+   than as every colour at once. */
+const THEMES = {
+  purple:   { anchor: 278, bgHue: 274, bgSat: 0.52, bgLight: 0.055, satMul: 0.96 },
+  midnight: { anchor: 228, bgHue: 232, bgSat: 0.58, bgLight: 0.052, satMul: 0.94 },
+  orchid:   { anchor: 310, bgHue: 296, bgSat: 0.50, bgLight: 0.058, satMul: 1.0  },
+  ice:      { anchor: 196, bgHue: 210, bgSat: 0.48, bgLight: 0.055, satMul: 0.92 },
+  ember:    { anchor: 22,  bgHue: 348, bgSat: 0.50, bgLight: 0.050, satMul: 1.0  },
+  violet:   { anchor: 262, bgHue: 258, bgSat: 0.58, bgLight: 0.050, satMul: 0.98 },
+  rose:     { anchor: 338, bgHue: 330, bgSat: 0.46, bgLight: 0.052, satMul: 0.96 },
+  slate:    { anchor: 250, bgHue: 246, bgSat: 0.22, bgLight: 0.055, satMul: 0.62 },
+  forest:   { anchor: 152, bgHue: 168, bgSat: 0.44, bgLight: 0.048, satMul: 0.90, green: true },
+  custom:   { anchor: 278, bgHue: 274, bgSat: 0.50, bgLight: 0.055, satMul: 0.96, custom: true },
+  none:     { anchor: 0,   bgHue: 268, bgSat: 0.45, bgLight: 0.052, satMul: 1.0, off: true },
+};
+function theme() {
+  const t = THEMES[CFG.theme] || THEMES.purple;
+  if (!t.custom) return t;
+  const h = ((CFG.themeHue % 360) + 360) % 360;        // user-directed hue
+  return { anchor:h, bgHue:h - 4, bgSat:t.bgSat, bgLight:t.bgLight, satMul:t.satMul, custom:true };
+}
+/* Green occupies a wide, visually dominant band. With avoidGreen on, hues
+   landing inside it are pushed out toward its edges, so a ramp travels
+   through yellow and cyan rather than parking on green. It is a
+   continuous remap, not a clamp, so ramps never bank up on one hue. */
+const G_C = 118, G_W = 46;
+function dodgeGreen(h) {
+  const d = (((h - G_C) % 360) + 540) % 360 - 180;     // signed distance -180..180
+  const a = d < 0 ? -d : d;
+  if (a >= G_W) return h;
+  const pushed = G_W * Math.pow(a / G_W, 0.16);        // half-way in -> 90% of the way out
+  return G_C + (d < 0 ? -pushed : pushed);
+}
+let hueBase = 0, hueKick = 0;
+function paletteHue(t) {
+  const f = PALETTES[CFG.palette] || PALETTES.prism;
+  const drift = hueBase + hueKick;
+  const shape = f(t, 0, CFG.hueSpread);        // ramp shape, base removed
+  const th = theme();
+  const amt = th.off ? 0 : Math.max(0, Math.min(1, CFG.themeAmt));
+  let h = amt < 0.001 ? drift + shape
+                      : th.anchor * amt + drift * (1 - amt) + shape * (1 - amt * 0.5);
+  if (CFG.avoidGreen && !th.green) h = dodgeGreen(h);
+  return h;
+}
+// saturation after the theme's tonal restraint
+function themeSat() { return (CFG.sat / 100) * (theme().satMul || 1); }
+// per-frame colour cache so 600 bars don't each rebuild an hsl conversion
+let COL = { n: 0, r: null, g: null, b: null };
+function rebuildColourCache(n) {
+  if (COL.n !== n) { COL = { n, r: new Uint8Array(n), g: new Uint8Array(n), b: new Uint8Array(n) }; }
+  const s = CFG.sat / 100, l = CFG.light / 100;
+  for (let i = 0; i < n; i++) {
+    const [r, g, b] = hsl2rgb(paletteHue(n > 1 ? i / (n - 1) : 0), s, l);
+    COL.r[i] = r; COL.g[i] = g; COL.b[i] = b;
+  }
+}
+const rgba = (r, g, b, a) => 'rgba(' + (r | 0) + ',' + (g | 0) + ',' + (b | 0) + ',' + a + ')';
+function hueCss(h, s, l, a) { const c = hsl2rgb(h, s, l); return rgba(c[0], c[1], c[2], a); }
+
+/* =====================================================================
+   Value noise + fBm (for the nebula / flow field)
+   ===================================================================== */
+const PERM = new Uint8Array(512);
+(() => { const p = new Uint8Array(256); for (let i = 0; i < 256; i++) p[i] = i;
+  let seed = 1337;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  for (let i = 255; i > 0; i--) { const j = (rnd() * (i + 1)) | 0; const t = p[i]; p[i] = p[j]; p[j] = t; }
+  for (let i = 0; i < 512; i++) PERM[i] = p[i & 255];
+})();
+const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
+function vnoise(x, y) {
+  const xi = Math.floor(x) & 255, yi = Math.floor(y) & 255;
+  const xf = x - Math.floor(x), yf = y - Math.floor(y);
+  const u = fade(xf), v = fade(yf);
+  const aa = PERM[PERM[xi] + yi], ab = PERM[PERM[xi] + yi + 1];
+  const ba = PERM[PERM[xi + 1] + yi], bb = PERM[PERM[xi + 1] + yi + 1];
+  const l1 = aa + (ba - aa) * u, l2 = ab + (bb - ab) * u;
+  return (l1 + (l2 - l1) * v) / 255;
+}
+function fbm(x, y, oct) {
+  let a = 0.5, f = 1, s = 0, n = 0;
+  for (let i = 0; i < oct; i++) { s += a * vnoise(x * f, y * f); n += a; a *= 0.5; f *= 2.03; }
+  return s / n;
+}
+
+/* =====================================================================
+   Audio engine
+     source -> [inputGain] -> analyser
+                           -> monitorGain -> destination   (demo/file only)
+   Mic and system capture never reach the speakers, so there is no echo.
+   ===================================================================== */
+let actx = null, analyser = null, inputGain = null, monitorGain = null;
+let freqBuf = null, waveBuf = null, prevMag = null;
+let curSource = null;               // {kind, label, stop(), monitored:bool}
+let demoBpm = 0;
+
+function ensureCtx() {
+  if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  inputGain = actx.createGain(); inputGain.gain.value = CFG.gain;
+  monitorGain = actx.createGain(); monitorGain.gain.value = CFG.monitor ? CFG.volume : 0;
+  monitorGain.connect(actx.destination);
+  analyser = actx.createAnalyser();
+  applyAnalyserCfg();
+  inputGain.connect(analyser);
+  buildBands();
+}
+function applyAnalyserCfg() {
+  if (!analyser) return;
+  const want = Math.max(32, Math.min(32768, +CFG.fft | 0));
+  if (analyser.fftSize !== want) {
+    try { analyser.fftSize = want; } catch (e) {}
+  }
+  analyser.smoothingTimeConstant = Math.max(0, Math.min(0.95, CFG.smoothing));
+  analyser.minDecibels = Math.min(-45, CFG.floorDb);
+  analyser.maxDecibels = Math.max(analyser.minDecibels + 12, CFG.ceilDb);
+  if (!freqBuf || freqBuf.length !== analyser.frequencyBinCount) {
+    freqBuf = new Uint8Array(analyser.frequencyBinCount);
+    prevMag = new Float32Array(analyser.frequencyBinCount);
+  }
+  if (!waveBuf || waveBuf.length !== analyser.fftSize) waveBuf = new Uint8Array(analyser.fftSize);
+  buildBands();
+}
+function updateMonitor() {
+  if (!monitorGain) return;
+  const on = CFG.monitor && curSource && curSource.monitored !== false;
+  monitorGain.gain.setTargetAtTime(on ? CFG.volume : 0, actx.currentTime, 0.02);
+}
+function stopSource(cancelPending = true) {
+  if (cancelPending) ++reqSeq;
+  if (curSource) { try { curSource.stop(); } catch (e) {} curSource = null; }
+  demoBpm = 0;
+  renderSourceUI();
+}
+function connectSrc(node, monitored) {
+  node.connect(inputGain);
+  if (monitored) node.connect(monitorGain);
+}
+/* Every start bumps reqSeq, so a slow permission prompt or file decode
+   that finishes after the user already picked something else is
+   dropped instead of hijacking the newer source. */
+let reqSeq = 0;
+function setSource(s) {
+  stopSource(false);
+  curSource = s;
+  hideOverlay(); updateMonitor(); renderSourceUI();
+}
+
+/* ---------------------------------------------------------------------
+   Input devices
+     Linux Brave/Chromium never lists PulseAudio ".monitor" sources and
+     its share picker only offers tab audio, so "system audio" is a
+     PipeWire loopback that shows up as an ordinary input named
+     "PRISM System Audio" (prism-system-audio.sh, started by prism-v4.sh).
+     Any input whose name looks like a loopback counts as system audio,
+     so Stereo Mix / BlackHole / VB-Cable work on other machines too.
+   --------------------------------------------------------------------- */
+const SRC_KEY = 'prism.v4.desktop.source';
+const SYS_RE = /prism system audio|system audio|loopback|monitor of|stereo mix|what u hear|blackhole|vb-?cable|soundflower/i;
+let inputs = [];              // [{id, label, sys}] sorted by name, excluding the "default" alias
+let labelsKnown = false;      // device names stay hidden until the page has mic permission
+let lastSrc = {};             // {kind, id, label} of the last live input, remembered across launches
+try { lastSrc = JSON.parse(localStorage.getItem(SRC_KEY)) || {}; } catch (e) {}
+function rememberSrc(o) { lastSrc = o; try { localStorage.setItem(SRC_KEY, JSON.stringify(o)); } catch (e) {} }
+
+let deviceScanSeq = 0;
+function refreshDevices() {
+  const scan = ++deviceScanSeq;
+  const md = navigator.mediaDevices;
+  if (!md || !md.enumerateDevices) { renderSourceUI(); return Promise.resolve(); }
+  return md.enumerateDevices().then(list => {
+    if (scan !== deviceScanSeq) return;
+    const ins = list.filter(d => d.kind === 'audioinput');
+    labelsKnown = ins.some(d => d.label);
+    inputs = ins.filter(d => d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications')
+      .map(d => ({ id: d.deviceId, label: d.label || 'Input', sys: SYS_RE.test(d.label) }))
+      .sort((a, b) => a.label.localeCompare(b.label));      // Brave shuffles the order on every call
+  }).catch(() => {}).then(renderSourceUI);
+}
+function sysDevice() {
+  const saved = lastSrc.kind === 'sys' && findInput(lastSrc.id, lastSrc.label);
+  return (saved && saved.sys ? saved : null) || inputs.find(d => /prism system audio/i.test(d.label)) || inputs.find(d => d.sys) || null;
+}
+function micDevices() { return inputs.filter(d => !d.sys); }
+// resolve a remembered device: ids can change between sessions, names rarely do
+function findInput(id, label) {
+  return inputs.find(d => d.id === id) || (label ? inputs.find(d => d.label === label) : null) || null;
+}
+
+function mediaError(e, what) {
+  const n = e && e.name;
+  if (n === 'NotAllowedError' || n === 'SecurityError')
+    return what + ' blocked. Allow the microphone for this page (brave://settings/content/microphone) and try again.';
+  if (n === 'NotFoundError' || n === 'OverconstrainedError') return what + ': device not found. Is it unplugged?';
+  if (n === 'NotReadableError' || n === 'AbortError') return what + ': the device is busy or failed to start.';
+  if (n === 'InvalidStateError') return what + ' needs a click to start. Use the button rather than a shortcut.';
+  return what + ' failed' + (e && e.message ? ': ' + e.message : '.');
+}
+
+function openInput(kind, dev, seq) {
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) { showError('Audio input is not available in this browser.'); return Promise.resolve(); }
+  ensureCtx();
+  const what = kind === 'sys' ? 'System audio' : 'Microphone';
+  const audio = { echoCancellation:false, noiseSuppression:false, autoGainControl:false, channelCount:{ ideal:2 } };
+  if (dev) audio.deviceId = { exact: dev.id };
+  return md.getUserMedia({ audio }).then(stream => {
+    if (seq !== reqSeq) { stream.getTracks().forEach(t => t.stop()); return; }
+    const src = actx.createMediaStreamSource(stream);
+    connectSrc(src, false);                         // never to the speakers: no echo, no feedback loop
+    const tr = stream.getAudioTracks()[0];
+    const name = (tr && tr.label) || (dev && dev.label) || 'Default input';
+    const s = { kind, id: dev ? dev.id : 'default', device: name, monitored:false,
+      label: kind === 'sys' ? 'SYSTEM AUDIO' : 'MIC · ' + name.toUpperCase().slice(0, 24),
+      stop(){ stream.getTracks().forEach(t => t.stop()); try { src.disconnect(); } catch (e) {} } };
+    if (tr) tr.addEventListener('ended', () => {
+      if (curSource !== s) return;
+      stopSource(); showOverlay(); showError(what + ' disconnected (' + name + ').');
+    });
+    setSource(s);
+    rememberSrc({ kind, id: dev ? dev.id : 'default', label: dev ? dev.label : '' });
+    return refreshDevices();                        // the first grant reveals device names
+  }).catch(e => { if (seq === reqSeq) showError(mediaError(e, what)); });
+}
+
+// dev: an entry from inputs, 'default', or undefined = last used / chosen in the picker
+function startMic(dev) {
+  const seq = ++reqSeq;
+  const pick = document.getElementById('micSel');
+  const id = dev === undefined ? (pick.value || (lastSrc.kind === 'mic' ? lastSrc.id : 'default'))
+    : typeof dev === 'string' ? dev : dev.id;
+  const label = dev && typeof dev === 'object' ? dev.label
+    : lastSrc.kind === 'mic' && lastSrc.id === id ? lastSrc.label : '';
+  ensureCtx();
+  return refreshDevices().then(() => {
+    if (seq !== reqSeq) return;
+    const chosen = id === 'default' ? null : findInput(id, label);
+    if (id !== 'default' && (!chosen || chosen.sys)) {
+      showError('Selected microphone is unavailable. Reconnect it, rescan inputs, or choose another microphone.');
+      return;
+    }
+    return openInput('mic', chosen, seq);
+  });
+}
+
+function startSystem(deviceId) {
+  // Windows Chromium can capture the desktop mix directly. Open the picker
+  // synchronously from the click so transient user activation is preserved.
+  if (!deviceId && /Win/i.test(navigator.platform) && !sysDevice()) return startDisplay('sys');
+  const seq = ++reqSeq;
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) { showError('Audio input is not available in this browser.'); return Promise.resolve(); }
+  ensureCtx();
+  return refreshDevices().then(() => {
+    if (seq !== reqSeq || sysDevice() || labelsKnown) return;
+    // names are hidden until the page may use the mic: ask once, then look again
+    return md.getUserMedia({ audio: true }).then(s => { s.getTracks().forEach(t => t.stop()); return refreshDevices(); });
+  }).then(() => {
+    if (seq !== reqSeq) return;
+    const dev = deviceId ? inputs.find(d => d.id === deviceId && d.sys) : sysDevice();
+    if (!dev) {
+      showError('Desktop audio input is not set up. Open PRISM from its launcher (prism-v4.sh), then choose Entire desktop audio.');
+      return;
+    }
+    return openInput('sys', dev, seq);
+  }).catch(e => { if (seq === reqSeq) showError(mediaError(e, 'System audio')); });
+}
+
+// Share picker. On Linux this can only carry a browser tab's audio.
+function startTab() { return startDisplay('tab'); }
+function startDisplay(kind) {
+  const seq = ++reqSeq;
+  const md = navigator.mediaDevices;
+  if (!md || !md.getDisplayMedia) { showError('Tab audio capture is not available in this browser.'); return Promise.resolve(); }
+  ensureCtx();
+  const options = { video:{ displaySurface:kind === 'sys' ? 'monitor' : 'browser' }, audio:true, systemAudio:'include',
+    preferCurrentTab:false, selfBrowserSurface:'exclude', surfaceSwitching:'exclude' };
+  if (typeof CaptureController !== 'undefined' && 'setFocusBehavior' in CaptureController.prototype) {
+    const controller = new CaptureController();
+    controller.setFocusBehavior('no-focus-change');
+    options.controller = controller;
+  }
+  return md.getDisplayMedia(options)
+    .then(stream => {
+      if (kind === 'sys') {
+        const video = stream.getVideoTracks()[0];
+        if (!video || video.getSettings().displaySurface !== 'monitor') {
+          stream.getTracks().forEach(t => t.stop());
+          if (seq === reqSeq) showError('Choose Entire screen to capture desktop audio. Browser tab audio is a separate source.');
+          return;
+        }
+      }
+      stream.getVideoTracks().forEach(t => t.stop());
+      const at = stream.getAudioTracks();
+      if (seq !== reqSeq) { at.forEach(t => t.stop()); return; }
+      // Linux screen/window sharing has no audio track. Use the desktop
+      // loopback instead of sending the user back to a highlighted Brave tab.
+      if (!at.length) {
+        if (kind === 'tab' && !/Win/i.test(navigator.platform)) return startSystem();
+        showError('No audio was shared. Choose Entire screen and enable Share system audio, or select a loopback input.');
+        return;
+      }
+      const src = actx.createMediaStreamSource(stream);
+      connectSrc(src, false);
+      const s = { kind, label:kind === 'sys' ? 'SYSTEM AUDIO' : 'TAB AUDIO', monitored:false,
+        stop(){ at.forEach(t => t.stop()); try { src.disconnect(); } catch (e) {} } };
+      at[0].addEventListener('ended', () => { if (curSource === s) { stopSource(); showOverlay(); } });
+      setSource(s);
+    })
+    .catch(e => {
+      if (seq !== reqSeq) return;
+      if (e && e.name === 'NotAllowedError') showError('Sharing cancelled.');
+      else showError(mediaError(e, 'Tab audio'));
+    });
+}
+
+function loadFile(file) {
+  const seq = ++reqSeq;
+  ensureCtx();
+  file.arrayBuffer().then(buf => actx.decodeAudioData(buf)).then(audio => {
+    if (seq !== reqSeq) return;
+    const src = actx.createBufferSource();
+    src.buffer = audio; src.loop = true;
+    connectSrc(src, true);
+    src.start();
+    setSource({ kind:'file', label:file.name.replace(/\.[^.]+$/, '').slice(0,20).toUpperCase(), monitored:true,
+      stop(){ try{src.stop(); src.disconnect();}catch(e){} } });
+  }).catch(() => { if (seq === reqSeq) showError('Could not decode that file.'); });
+}
+
+/* ---------------------------------------------------------------------
+   Built-in track — a real sequenced piece, not a drone. Gives the
+   visualiser genuine transients, bass movement and treble air to chew on.
+   --------------------------------------------------------------------- */
+let noiseBuf = null;
+function getNoise() {
+  if (noiseBuf) return noiseBuf;
+  noiseBuf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate);
+  const d = noiseBuf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  return noiseBuf;
+}
+function makeReverb(seconds, decay) {
+  const len = (actx.sampleRate * seconds) | 0;
+  const buf = actx.createBuffer(2, len, actx.sampleRate);
+  for (let c = 0; c < 2; c++) {
+    const d = buf.getChannelData(c);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+  }
+  const cv = actx.createConvolver(); cv.buffer = buf; return cv;
+}
+
+function startDemo() {
+  ++reqSeq;
+  ensureCtx();
+  stopSource();
+
+  const bus = actx.createGain(); bus.gain.value = 0.9;
+  connectSrc(bus, true);
+
+  const verb = makeReverb(2.6, 2.6);
+  const verbSend = actx.createGain(); verbSend.gain.value = 0.34;
+  verbSend.connect(verb); verb.connect(bus);
+
+  const delay = actx.createDelay(1.0); delay.delayTime.value = 60 / 124 * 0.75;
+  const dfb = actx.createGain(); dfb.gain.value = 0.34;
+  const dfilt = actx.createBiquadFilter(); dfilt.type = 'highpass'; dfilt.frequency.value = 500;
+  delay.connect(dfilt); dfilt.connect(dfb); dfb.connect(delay); delay.connect(bus);
+  const delaySend = actx.createGain(); delaySend.gain.value = 0.3; delaySend.connect(delay);
+
+  const BPM = 124, SPB = 60 / BPM, STEP = SPB / 4;
+  demoBpm = BPM;
+  const live = [];
+  const track = (n) => { live.push(n); return n; };
+
+  function env(g, t, a, d, peak) {
+    g.gain.cancelScheduledValues(t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + a);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + a + d);
+  }
+  function kick(t) {
+    const o = actx.createOscillator(); o.type = 'sine';
+    const g = actx.createGain();
+    o.frequency.setValueAtTime(165, t);
+    o.frequency.exponentialRampToValueAtTime(38, t + 0.11);
+    env(g, t, 0.004, 0.34, 1.0);
+    o.connect(g); g.connect(bus); o.start(t); o.stop(t + 0.42);
+    const c = actx.createBufferSource(); c.buffer = getNoise(); c.loop = true;
+    const cf = actx.createBiquadFilter(); cf.type = 'lowpass'; cf.frequency.value = 2600;
+    const cg = actx.createGain(); env(cg, t, 0.002, 0.03, 0.5);
+    c.connect(cf); cf.connect(cg); cg.connect(bus); c.start(t); c.stop(t + 0.06);
+  }
+  function snare(t) {
+    const n = actx.createBufferSource(); n.buffer = getNoise(); n.loop = true;
+    const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1900; bp.Q.value = 0.7;
+    const g = actx.createGain(); env(g, t, 0.003, 0.19, 0.42);
+    n.connect(bp); bp.connect(g); g.connect(bus); g.connect(verbSend);
+    n.start(t); n.stop(t + 0.26);
+    const o = actx.createOscillator(); o.type = 'triangle'; o.frequency.setValueAtTime(210, t);
+    o.frequency.exponentialRampToValueAtTime(120, t + 0.1);
+    const og = actx.createGain(); env(og, t, 0.002, 0.12, 0.24);
+    o.connect(og); og.connect(bus); o.start(t); o.stop(t + 0.18);
+  }
+  function hat(t, open) {
+    const n = actx.createBufferSource(); n.buffer = getNoise(); n.loop = true;
+    const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 8200;
+    const g = actx.createGain(); env(g, t, 0.002, open ? 0.19 : 0.035, open ? 0.16 : 0.13);
+    n.connect(hp); hp.connect(g); g.connect(bus);
+    n.start(t); n.stop(t + (open ? 0.26 : 0.09));
+  }
+  function bassNote(t, f, dur) {
+    const o1 = actx.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = f;
+    const o2 = actx.createOscillator(); o2.type = 'square'; o2.frequency.value = f / 2;
+    const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 7;
+    lp.frequency.setValueAtTime(220 + 1500, t);
+    lp.frequency.exponentialRampToValueAtTime(180, t + dur * 0.9);
+    const g = actx.createGain(); env(g, t, 0.008, dur, 0.34);
+    o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(bus);
+    o1.start(t); o2.start(t); o1.stop(t + dur + 0.1); o2.stop(t + dur + 0.1);
+  }
+  function padChord(t, freqs, dur) {
+    const g = actx.createGain();
+    const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2200; lp.Q.value = 0.6;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.075, t + dur * 0.28);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    lp.connect(g); g.connect(bus); g.connect(verbSend);
+    for (const f of freqs) for (const det of [-7, 7]) {
+      const o = actx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = det;
+      o.connect(lp); o.start(t); o.stop(t + dur + 0.1);
+    }
+  }
+  function lead(t, f, dur) {
+    const o = actx.createOscillator(); o.type = 'square'; o.frequency.value = f;
+    const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 4200; lp.Q.value = 3;
+    const g = actx.createGain(); env(g, t, 0.004, dur, 0.10);
+    o.connect(lp); lp.connect(g); g.connect(bus); g.connect(delaySend); g.connect(verbSend);
+    o.start(t); o.stop(t + dur + 0.08);
+  }
+  function air(t, dur) {
+    const n = actx.createBufferSource(); n.buffer = getNoise(); n.loop = true;
+    const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 6000;
+    const g = actx.createGain(); env(g, t, dur * 0.4, dur * 0.6, 0.05);
+    n.connect(hp); hp.connect(g); g.connect(bus); g.connect(verbSend);
+    n.start(t); n.stop(t + dur + 0.1);
+  }
+
+  const nt = (semi) => 440 * Math.pow(2, (semi - 9) / 12);           // semi: 0=C4
+  // Am - F - C - G  (root, chord tones, lead scale)
+  const PROG = [
+    { root: nt(-12+9), chord: [nt(9), nt(12), nt(16)], lead: [9,12,16,21,16,12] },   // A  C  E
+    { root: nt(-12+5), chord: [nt(5), nt(9),  nt(12)], lead: [5,9,12,17,12,9] },     // F  A  C
+    { root: nt(-12+0), chord: [nt(0), nt(4),  nt(7) ], lead: [0,4,7,12,7,4] },       // C  E  G
+    { root: nt(-12+7), chord: [nt(7), nt(11), nt(14)], lead: [7,11,14,19,14,11] },   // G  B  D
+  ];
+  const KICK  = [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,0,0];
+  const SNARE = [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,1];
+  const HAT   = [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,1,1,0];
+  const OPEN  = [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1,0];
+  const BASS  = [1,0,0,1, 0,0,1,0, 1,0,0,1, 0,1,0,0];
+
+  let step = 0, nextT = actx.currentTime + 0.08, running = true;
+  function schedule() {
+    if (!running) return;
+    while (nextT < actx.currentTime + 0.22) {
+      const s = step % 16, bar = (step / 16) | 0, ch = PROG[bar % 4];
+      if (KICK[s])  kick(nextT);
+      if (SNARE[s]) snare(nextT);
+      if (HAT[s])   hat(nextT, !!OPEN[s]);
+      if (BASS[s])  bassNote(nextT, ch.root, STEP * 1.6);
+      if (s === 0)  { padChord(nextT, ch.chord, SPB * 4 * 0.98); air(nextT, SPB * 4); }
+      if (bar % 4 >= 2 && s % 2 === 0) lead(nextT, nt(ch.lead[(s / 2) % 6]) * 2, STEP * 1.4);
+      nextT += STEP; step++;
+    }
+    timer = setTimeout(schedule, 25);
+  }
+  let timer = 0;
+  schedule();
+
+  curSource = { kind:'demo', label:'DEMO SIGNAL', monitored:true,
+    stop(){ running = false; clearTimeout(timer);
+      live.forEach(n => { try { n.stop && n.stop(); } catch(e){} });
+      try { bus.disconnect(); } catch(e){} } };
+  hideOverlay(); updateMonitor(); renderSourceUI();
+}
+
+/* =====================================================================
+   Analysis — log-spaced bands, attack/release envelopes, AGC,
+   spectral flux onset detection, autocorrelation tempo, centroid.
+   ===================================================================== */
+let BARS = 256;
+let smooth = new Float32Array(0), peak = new Float32Array(0), peakAge = new Float32Array(0);
+let bandLo = new Int32Array(0), bandHi = new Int32Array(0), bandW = new Float32Array(0);
+let rawB = new Float32Array(0), preB = new Float64Array(1);
+
+function allocBars(n) {
+  BARS = n;
+  smooth = new Float32Array(n); peak = new Float32Array(n); peakAge = new Float32Array(n);
+  bandLo = new Int32Array(n); bandHi = new Int32Array(n); bandW = new Float32Array(n);
+  rawB = new Float32Array(n); preB = new Float64Array(n + 1);
+  targets = new Float32Array(n);
+  rebuildColourCache(n);
+  buildBands();
+}
+function buildBands() {
+  if (!analyser || !actx || !bandLo.length) return;
+  const bins = analyser.frequencyBinCount, nyq = actx.sampleRate / 2;
+  const fMin = Math.max(10, CFG.fMin), fMax = Math.min(nyq, CFG.fMax);
+  const ratio = fMax / fMin;
+  for (let i = 0; i < BARS; i++) {
+    const f1 = fMin * Math.pow(ratio, i / BARS);
+    const f2 = fMin * Math.pow(ratio, (i + 1) / BARS);
+    let lo = Math.floor(f1 / nyq * bins), hi = Math.ceil(f2 / nyq * bins);
+    if (hi <= lo) hi = lo + 1;
+    if (hi > bins) hi = bins;
+    if (lo >= bins) lo = bins - 1;
+    bandLo[i] = lo; bandHi[i] = hi;
+    // gentle treble tilt only — the shaping work is done by peak
+    // contrast below, so this must not lift the whole top end to full
+    bandW[i] = 1 + CFG.tilt * Math.pow(i / Math.max(1, BARS - 1), 0.7) * 1.5;
+  }
+}
+
+/* onset / tempo state */
+const FLUXN = 512;
+const fluxHist = new Float32Array(FLUXN);
+let fluxIdx = 0, fluxMean = 0, fluxVar = 0;
+let onsetTimes = [], lastOnset = -1e9, bpmEst = 0, lastBpmCalc = 0;
+let beatPulse = 0, beatCount = 0;
+let normPeak = 0.3;
+
+const M = {                                     // shared metric block
+  overall:0, rms:0, peakAmp:0,
+  sub:0, bass:0, mid:0, high:0, treble:0,
+  centroid:0.5, flatness:0, flux:0, beat:false, beatStrength:0, bpm:0,
+};
+
+function analyze(now, dt) {
+  const hasAudio = !!(analyser && curSource);
+  let overall = 0, rms = 0, pk = 0;
+
+  if (hasAudio) {
+    analyser.getByteFrequencyData(freqBuf);
+    analyser.getByteTimeDomainData(waveBuf);
+
+    /* --- spectral flux (positive change only) + centroid + flatness --- */
+    let flux = 0, wsum = 0, msum = 0, logsum = 0, nz = 0;
+    const bins = freqBuf.length;
+    for (let b = 0; b < bins; b++) {
+      const v = freqBuf[b] / 255;
+      const d = v - prevMag[b];
+      if (d > 0) flux += d;
+      prevMag[b] = v;
+      wsum += v * b; msum += v;
+      if (v > 0.0001) { logsum += Math.log(v); nz++; }
+    }
+    flux /= Math.sqrt(bins);
+    M.centroid = msum > 0.0001 ? (wsum / msum) / bins : 0.5;
+    M.flatness = nz > 0 && msum > 0.0001 ? Math.exp(logsum / nz) / (msum / bins) : 0;
+
+    /* running mean/variance of flux over the last FLUXN frames */
+    const old = fluxHist[fluxIdx];
+    fluxHist[fluxIdx] = flux; fluxIdx = (fluxIdx + 1) % FLUXN;
+    fluxMean += (flux - old) / FLUXN;
+    fluxVar = fluxVar * 0.995 + Math.pow(flux - fluxMean, 2) * 0.005;
+    M.flux = flux;
+
+    const thresh = fluxMean + Math.sqrt(fluxVar) * 1.5 + 0.004;
+    if (flux > thresh && now - lastOnset > 130) {
+      lastOnset = now;
+      M.beat = true; M.beatStrength = Math.min(1, (flux - fluxMean) / (thresh + 1e-6));
+      beatCount++;
+      onsetTimes.push(now);
+      if (onsetTimes.length > 96) onsetTimes.shift();
+    } else { M.beat = false; }
+
+    /* tempo: histogram of inter-onset intervals folded into 60..190 bpm */
+    if (now - lastBpmCalc > 900 && onsetTimes.length > 8) {
+      lastBpmCalc = now;
+      const hist = new Float32Array(131);            // 60..190
+      for (let i = 1; i < onsetTimes.length; i++)
+        for (let j = Math.max(0, i - 8); j < i; j++) {
+          let iv = onsetTimes[i] - onsetTimes[j];
+          if (iv < 200) continue;
+          let bpm = 60000 / iv;
+          while (bpm < 60) bpm *= 2;
+          while (bpm > 190) bpm /= 2;
+          const idx = Math.round(bpm) - 60;
+          if (idx >= 0 && idx < 131) { hist[idx] += 1; if (idx > 0) hist[idx-1] += 0.5; if (idx < 130) hist[idx+1] += 0.5; }
+        }
+      let best = 0, bi = -1;
+      for (let i = 0; i < 131; i++) if (hist[i] > best) { best = hist[i]; bi = i; }
+      if (bi >= 0 && best > 3) bpmEst = bi + 60;
+    }
+    M.bpm = demoBpm || bpmEst;
+
+    /* --- bands ---------------------------------------------------
+       getByteFrequencyData is already a dB scale mapped across
+       [minDecibels, maxDecibels], so raising the floor alone kills the
+       hiss. On top of that each band is compared against its own
+       neighbourhood: a band only grows tall when it genuinely stands
+       above the bands around it. That is what stops a loud track from
+       simply pinning every bar to the ceiling. */
+    const gain = CFG.gain;
+    for (let i = 0; i < BARS; i++) {
+      let s = 0, n = 0, mx = 0;
+      for (let b = bandLo[i]; b < bandHi[i]; b++) { const v = freqBuf[b]; s += v; n++; if (v > mx) mx = v; }
+      const avg = n ? s / n : 0;
+      rawB[i] = ((mx * 0.7 + avg * 0.3) / 255) * bandW[i] * gain;
+    }
+    // exact box average over +/-K bands via a prefix sum
+    const K = Math.max(2, Math.round(BARS * 0.04));
+    preB[0] = 0;
+    for (let i = 0; i < BARS; i++) preB[i + 1] = preB[i] + rawB[i];
+    let frameMax = 0;
+    const cst = CFG.contrast;
+    for (let i = 0; i < BARS; i++) {
+      const lo = i - K < 0 ? 0 : i - K, hi = i + K + 1 > BARS ? BARS : i + K + 1;
+      const neigh = (preB[hi] - preB[lo]) / (hi - lo);
+      const r = rawB[i];
+      let v = r;
+      if (cst > 0.01) {
+        const em = Math.pow((r + 0.006) / (neigh + 0.022), cst);
+        v = r * (em < 0.12 ? 0.12 : em > 2.8 ? 2.8 : em);
+      }
+      v = Math.pow(v < 0 ? 0 : v, CFG.gamma);
+      targets[i] = v;
+      if (v > frameMax) frameMax = v;
+      overall += v;
+    }
+    overall /= BARS;
+
+    /* Normalise against a slowly-released running peak. The loudest
+       partial reaches the top of the frame, everything else keeps its
+       true proportion to it — so prominence stays readable at any
+       input level, and quiet passages still look quiet. */
+    if (CFG.agc) {
+      normPeak = frameMax > normPeak ? normPeak + (frameMax - normPeak) * 0.28
+                                     : Math.max(0.03, normPeak * 0.9986);
+      const k = 0.84 / Math.max(0.03, normPeak);
+      for (let i = 0; i < BARS; i++) { const t = targets[i] * k; targets[i] = t > 1.2 ? 1.2 : t; }
+      overall = Math.min(1, overall * k);
+    }
+
+    for (let j = 0; j < waveBuf.length; j++) {
+      const x = (waveBuf[j] - 128) / 128;
+      rms += x * x; const a = x < 0 ? -x : x; if (a > pk) pk = a;
+    }
+    rms = Math.sqrt(rms / waveBuf.length);
+
+
+  } else {
+    /* idle: a slow breathing spectrum so the scene is never dead */
+    const t = now * 0.001;
+    for (let i = 0; i < BARS; i++) {
+      const u = i / BARS;
+      const w = Math.sin(t * 0.7 + u * 7.3) * 0.5 + Math.sin(t * 0.31 + u * 2.1) * 0.5;
+      targets[i] = Math.max(0, Math.pow(w * 0.5 + 0.5, 3)) * (0.12 - u * 0.07);
+      overall += targets[i];
+    }
+    overall /= BARS;
+    for (let j = 0; j < 64; j++) {}
+    M.centroid = 0.35 + Math.sin(now * 0.0004) * 0.12;
+    M.beat = (now - lastOnset > 1400);
+    if (M.beat) { lastOnset = now; M.beatStrength = 0.5; beatCount++; }
+    M.bpm = 0; M.flux = 0;
+    rms = overall * 0.6; pk = overall;
+  }
+
+  /* attack / release envelopes per bar */
+  const atk = CFG.attack, rel = CFG.release;
+  for (let i = 0; i < BARS; i++) {
+    const t = targets[i];
+    smooth[i] = t > smooth[i] ? smooth[i] + (t - smooth[i]) * atk : Math.max(t, smooth[i] * rel);
+    if (t > peak[i]) { peak[i] = t; peakAge[i] = 0; }
+    else if (++peakAge[i] > 32) peak[i] *= 0.965;
+  }
+
+  /* 5-band split (log positions across the bar array) */
+  const e = (a, b) => { let s = 0, n = 0; const lo = Math.max(0, (BARS*a)|0), hi = Math.min(BARS, Math.max(lo+1, (BARS*b)|0));
+                        for (let i = lo; i < hi; i++) { s += smooth[i]; n++; } return n ? s / n : 0; };
+  M.sub = e(0, 0.06); M.bass = e(0.06, 0.18); M.mid = e(0.18, 0.44);
+  M.high = e(0.44, 0.72); M.treble = e(0.72, 1);
+  M.overall = overall; M.rms = rms; M.peakAmp = pk;
+
+  if (M.beat) beatPulse = 1;
+  beatPulse *= Math.pow(0.0025, dt);                 // ~exp decay, frame-rate independent
+  return M;
+}
+let targets = new Float32Array(0);
+
+/* =====================================================================
+   Canvas stack
+     bgC    background (redrawn every frame — the "vibing" layer)
+     sceneC foreground scene, fades slowly for persistence of vision
+     bloom pyramid  b[0..3] downsampled + blurred copies of sceneC
+     viz    final composite + post
+   ===================================================================== */
+const canvas = document.getElementById('viz');
+const ctx = canvas.getContext('2d', { alpha:false, desynchronized:true });
+const mk = () => { const c = document.createElement('canvas'); return [c, c.getContext('2d')]; };
+const [bgC, bgx]     = mk();
+/* Two foreground buffers.
+     atmoC  additive ('lighter') — orbits, ring bars, particles, shocks.
+     heroC  source-over — bars and the string.
+   Additive blending physically cannot occlude: where the mirrored bars,
+   the string and the core overlapped they summed, clipped R,G,B to 255
+   and produced the white blockers that covered everything behind them.
+   Drawing the hero layers with source-over into their own buffer means
+   they occlude each other, stay bounded, and keep their hue. */
+const [atmoC, atmx]  = mk();
+const [heroC, hex]   = mk();
+let sceneC = atmoC, scx = atmx;          // rebound per layer group
+function useHero()  { sceneC = heroC;  scx = hex;  }
+function useAtmo()  { sceneC = atmoC;  scx = atmx; }
+const [nebC, nebx]   = mk();
+const [grainC, grx]  = mk();
+const BL = [mk(), mk(), mk(), mk()];
+
+const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let W = 0, H = 0, DPR = 1, RS = 1;                 // RS = render scale
+let nebW = 0, nebH = 0, nebImg = null, nebFrame = 0;
+let stars = null, starN = 0;
+let hasFilter = false;
+try { hasFilter = typeof scx.filter === 'string'; } catch (e) { hasFilter = false; }
+
+function resize() {
+  W = Math.max(320, window.innerWidth); H = Math.max(240, window.innerHeight);
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  RS = DPR * (+CFG.quality || 1);
+  const pw = Math.round(W * RS), ph = Math.round(H * RS);
+  canvas.width = pw; canvas.height = ph;
+  for (const c of [bgC, atmoC, heroC]) { c.width = pw; c.height = ph; }
+  ctx.setTransform(RS, 0, 0, RS, 0, 0);
+  bgx.setTransform(RS, 0, 0, RS, 0, 0);
+  atmx.setTransform(RS, 0, 0, RS, 0, 0);
+  hex.setTransform(RS, 0, 0, RS, 0, 0);
+
+  for (let i = 0; i < BL.length; i++) {
+    const div = 2 << i;                             // 2, 4, 8, 16
+    BL[i][0].width = Math.max(1, Math.round(pw / div));
+    BL[i][0].height = Math.max(1, Math.round(ph / div));
+  }
+  allocBars(Math.max(16, Math.min(768, Math.round(CFG.barCount))));
+  targets = new Float32Array(BARS);
+  buildNebula(); buildStars(); buildGrain();
+}
+function buildNebula() {
+  const res = Math.max(48, Math.min(384, +CFG.nebulaRes || 144));
+  nebW = res; nebH = Math.max(24, Math.round(res * H / W));
+  nebC.width = nebW; nebC.height = nebH;
+  nebImg = nebx.createImageData(nebW, nebH);
+  for (let i = 3; i < nebImg.data.length; i += 4) nebImg.data[i] = 255;
+}
+function buildStars() {
+  starN = Math.max(0, Math.round(CFG.starCount));
+  stars = new Float32Array(starN * 5);              // x, y, depth, phase, hue
+  for (let i = 0; i < starN; i++) {
+    stars[i*5]   = Math.random();
+    stars[i*5+1] = Math.random();
+    stars[i*5+2] = 0.25 + Math.random() * Math.random() * 1.6;
+    stars[i*5+3] = Math.random() * Math.PI * 2;
+    stars[i*5+4] = Math.random();
+  }
+}
+function buildGrain() {
+  const gw = 220, gh = 220;
+  grainC.width = gw; grainC.height = gh;
+  const img = grx.createImageData(gw, gh);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const v = (Math.random() * 255) | 0;
+    img.data[i] = img.data[i+1] = img.data[i+2] = v; img.data[i+3] = 255;
+  }
+  grx.putImageData(img, 0, 0);
+}
+addEventListener('resize', resize);
+
+/* =====================================================================
+   Background — nebula field, colour clouds, stars, grid, aurora, horizon
+   ===================================================================== */
+let flowT = 0;
+
+function drawNebulaField(now, m) {
+  if (!CFG.nebula || CFG.nebulaAmt <= 0) return;
+  // recompute the low-res field every other frame; the upscale hides it
+  nebFrame++;
+  const every = nebW > 220 ? 3 : 2;
+  if (nebFrame % every === 1 || !nebImg.__filled) {
+    nebImg.__filled = true;
+    const d = nebImg.data;
+    const t = flowT * 0.06 * CFG.nebulaFlow;
+    const warp = CFG.nebulaWarp;
+    const s = CFG.sat / 100, energy = 0.35 + m.overall * 2.2 + beatPulse * 0.4;
+    const sc = 2.6;
+    for (let y = 0; y < nebH; y++) {
+      const fy = y / nebH * sc * (nebH / nebW) * 1.9;
+      for (let x = 0; x < nebW; x++) {
+        const fx = x / nebW * sc;
+        const q1 = fbm(fx + t, fy - t * 0.7, 3);
+        const q2 = fbm(fx + 3.7 - t * 0.5, fy + 1.9 + t * 0.4, 3);
+        const r1 = fbm(fx + warp * q1 * 1.6 + t * 0.3, fy + warp * q2 * 1.6, 3);
+        let v = fbm(fx + warp * r1 * 2.1, fy + warp * r1 * 1.4 - t * 0.2, 4);
+        v = Math.max(0, (v - 0.34) * 1.9);
+        const dens = v * v * CFG.nebulaAmt * energy;
+        const hue = paletteHue(Math.min(1, r1 * 0.9 + q1 * 0.3)) + v * 90;
+        const [cr, cg, cb] = hsl2rgb(hue, s, Math.min(0.62, 0.10 + dens * 0.42));
+        const k = Math.min(1, dens * 1.5);
+        const o = (y * nebW + x) * 4;
+        d[o]   = cr * k;
+        d[o+1] = cg * k;
+        d[o+2] = cb * k;
+      }
+    }
+    nebx.putImageData(nebImg, 0, 0);
+  }
+  bgx.save();
+  bgx.globalCompositeOperation = 'lighter';
+  bgx.imageSmoothingEnabled = true; bgx.imageSmoothingQuality = 'high';
+  bgx.globalAlpha = 0.92;
+  bgx.drawImage(nebC, 0, 0, W, H);
+  bgx.restore();
+}
+
+function drawClouds(now, m) {
+  if (!CFG.clouds) return;
+  const t = flowT;
+  bgx.save(); bgx.globalCompositeOperation = 'lighter';
+  const N = 6, R = Math.max(W, H);
+  for (let i = 0; i < N; i++) {
+    const p = i / N;
+    const a1 = t * (0.05 + p * 0.06) + p * 6.28;
+    const a2 = t * (0.037 + p * 0.045) + p * 2.1;
+    const cx = W * (0.5 + Math.cos(a1) * (0.16 + p * 0.3));
+    const cy = H * (0.5 + Math.sin(a2) * (0.14 + p * 0.26));
+    const band = [m.sub, m.bass, m.mid, m.high, m.treble, m.overall][i % 6];
+    const rad = R * (0.16 + p * 0.26) * (0.85 + band * 1.4 + beatPulse * 0.14);
+    const hue = paletteHue(p);
+    const g = bgx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+    const a = (0.055 + band * 0.16) * (CFG.nebulaAmt * 0.6 + 0.5);
+    g.addColorStop(0, hueCss(hue, CFG.sat / 100, 0.55, a));
+    g.addColorStop(0.45, hueCss(hue + 26, CFG.sat / 100, 0.4, a * 0.4));
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    bgx.fillStyle = g; bgx.fillRect(0, 0, W, H);
+  }
+  bgx.restore();
+}
+
+function drawStars(now, m) {
+  if (!CFG.stars || !starN) return;
+  const t = flowT;
+  const drift = t * 6;
+  bgx.save(); bgx.globalCompositeOperation = 'lighter';
+  const tw = 0.5 + m.treble * 3.2;
+  for (let i = 0; i < starN; i++) {
+    const dz = stars[i*5+2];
+    let x = (stars[i*5] * W + drift * dz * 0.6) % W; if (x < 0) x += W;
+    let y = (stars[i*5+1] * H + Math.sin(t * 0.1 + stars[i*5+3]) * 6 * dz) % H; if (y < 0) y += H;
+    const tk = 0.45 + 0.55 * Math.sin(t * (1.1 + dz) + stars[i*5+3]);
+    const a = Math.min(1, (0.10 + tk * 0.5 * tw) * dz * 0.75);
+    if (a <= 0.012) continue;
+    const sz = Math.max(0.7, dz * 1.5 * (1 + beatPulse * 0.5));
+    const hue = paletteHue(stars[i*5+4]);
+    bgx.fillStyle = hueCss(hue, CFG.sat / 100 * 0.5, 0.86, a);
+    bgx.fillRect(x, y, sz, sz);
+  }
+  bgx.restore();
+}
+
+function drawGrid(now, m) {
+  if (!CFG.grid) return;
+  const cx = W / 2, cy = H / 2;
+  const ripple = beatPulse * CFG.gridWarp;
+  bgx.save();
+  bgx.globalCompositeOperation = 'lighter';
+  bgx.lineWidth = 1;
+  const cells = 10;
+  const hue = paletteHue(0.55);
+  for (let i = 0; i <= cells; i++) {
+    const p = i / cells;
+    const wob = Math.sin(flowT * 0.6 + i * 0.7) * 10 * CFG.gridWarp * (0.3 + m.mid * 2);
+    const a = 0.035 + ripple * 0.06 + m.overall * 0.05;
+    bgx.strokeStyle = hueCss(hue + p * 40, CFG.sat / 100 * 0.6, 0.6, a);
+    const x = p * W + wob;
+    bgx.beginPath(); bgx.moveTo(x, 0); bgx.lineTo(x, H); bgx.stroke();
+    const y = p * H + wob * 0.6;
+    bgx.beginPath(); bgx.moveTo(0, y); bgx.lineTo(W, y); bgx.stroke();
+  }
+  // beat ripple ring on the grid plane
+  if (ripple > 0.02) {
+    bgx.strokeStyle = hueCss(paletteHue(0.2), CFG.sat / 100, 0.7, ripple * 0.14);
+    bgx.lineWidth = 2;
+    bgx.beginPath(); bgx.arc(cx, cy, (1 - ripple) * Math.max(W, H) * 0.6, 0, 6.2832); bgx.stroke();
+  }
+  bgx.restore();
+}
+
+function drawAurora(now, m) {
+  if (!CFG.aurora) return;
+  bgx.save(); bgx.globalCompositeOperation = 'lighter';
+  const N = 4;
+  for (let i = 0; i < N; i++) {
+    const p = i / N;
+    const band = [m.bass, m.mid, m.high, m.treble][i];
+    const x = W * (0.12 + p * 0.76) + Math.sin(flowT * (0.23 + p * 0.2) + p * 5) * W * 0.16;
+    const wdt = W * (0.09 + band * 0.24);
+    const g = bgx.createLinearGradient(x - wdt, 0, x + wdt, 0);
+    const hue = paletteHue(0.15 + p * 0.7);
+    const a = 0.03 + band * 0.20;
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(0.5, hueCss(hue, CFG.sat / 100, 0.55, a));
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    bgx.fillStyle = g;
+    const hgt = H * (0.5 + band * 0.7);
+    bgx.fillRect(x - wdt, H / 2 - hgt / 2, wdt * 2, hgt);
+  }
+  bgx.restore();
+}
+
+function drawHorizon(now, m) {
+  if (!CFG.horizon) return;
+  const cy = H / 2;
+  const g = bgx.createLinearGradient(0, cy - H * 0.3, 0, cy + H * 0.3);
+  const hue = paletteHue(0.5);
+  const a = 0.05 + m.overall * 0.3 + beatPulse * 0.08;
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(0.5, hueCss(hue, CFG.sat / 100, 0.5, a));
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  bgx.save(); bgx.globalCompositeOperation = 'lighter';
+  bgx.fillStyle = g; bgx.fillRect(0, cy - H * 0.3, W, H * 0.6);
+  bgx.restore();
+}
+
+
+function renderBackground(now, m) {
+  const th = theme();
+  // circumstantial toning: noisy material desaturates toward steel,
+  // bright timbre lifts the wash, loudness raises it overall
+  const tonal = 1 - Math.min(1, M.flatness * 1.6);
+  const sat = th.bgSat * (0.55 + tonal * 0.55);
+  const lift = th.bgLight * (1 + m.overall * 0.9) + beatPulse * 0.010;
+  const drift = hueBase * 0.22;
+  const c1 = hsl2rgb(th.bgHue + drift, sat, lift);
+  const c2 = hsl2rgb(th.bgHue + 42 + drift, sat * 0.92, lift * 0.45);
+  const g = bgx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.78);
+  g.addColorStop(0.00, rgba(c2[0] * 0.45, c2[1] * 0.45, c2[2] * 0.45, 1));
+  g.addColorStop(0.34, rgba(c2[0], c2[1], c2[2], 1));
+  g.addColorStop(0.74, rgba(c1[0], c1[1], c1[2], 1));
+  g.addColorStop(1.00, rgba(c2[0] * 0.3, c2[1] * 0.3, c2[2] * 0.3, 1));
+  bgx.globalCompositeOperation = 'source-over';
+  bgx.globalAlpha = 1;
+  bgx.fillStyle = g; bgx.fillRect(0, 0, W, H);
+
+  drawNebulaField(now, m);
+  drawClouds(now, m);
+  drawAurora(now, m);
+  drawHorizon(now, m);
+  drawStars(now, m);
+  drawGrid(now, m);
+
+  // Hold the middle of the frame back. The orbits, bars and string all
+  // live there; if the background is equally bright underneath them
+  // nothing reads. Pushing atmosphere to the outer field is what buys
+  // the legibility back.
+  const dim = CFG.bgCentreDim !== undefined ? CFG.bgCentreDim : 0.45;
+  if (dim > 0.01) {
+    const cg = bgx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.min(W, H) * 0.55);
+    cg.addColorStop(0, 'rgba(0,0,0,' + dim.toFixed(3) + ')');
+    cg.addColorStop(0.6, 'rgba(0,0,0,' + (dim * 0.45).toFixed(3) + ')');
+    cg.addColorStop(1, 'rgba(0,0,0,0)');
+    bgx.globalCompositeOperation = 'source-over';
+    bgx.fillStyle = cg; bgx.fillRect(0, 0, W, H);
+  }
+}
+
+/* =====================================================================
+   Foreground layer 1 — linear spectrum bars (the spine)
+   ===================================================================== */
+
+function drawBars(now, m) {
+  if (!CFG.bars) return;
+  const cy = H / 2;
+  const pad = W * 0.02, usable = W - pad * 2;
+  const step = usable / BARS, bw = Math.max(0.7, step * 0.82);
+  const maxH = H * (CFG.barMirror ? 0.30 : 0.55) * CFG.barGain;
+  const baseY = CFG.barMirror ? cy : H * 0.94;
+  // dispersion tracks bar spacing: an absolute pixel offset at 600 bars
+  // smears every bar across its neighbours into one solid band
+  const dispK = CFG.barDisp * Math.min(7, step * 1.4 + 0.5);
+  const sat = themeSat();
+
+  for (let i = 0; i < BARS; i++) {
+    const v = smooth[i];
+    if (v < 0.006) continue;
+    const h = Math.max(1, v * maxH);
+    const x = pad + i * step + step / 2;
+    // Quiet bands must recede: opacity, brightness AND saturation all fall
+    // with height, so hundreds of low bars read as fine structure while the
+    // few prominent tones carry the eye. In source-over mode this is the
+    // whole game - there is no additive stacking to lean on.
+    const k = v * v;
+    const lum = 0.28 + k * 0.72;
+    const a = Math.min(0.95, 0.05 + v * 0.85);
+    const r = COL.r[i] * lum, g = COL.g[i] * lum, b = COL.b[i] * lum;
+    const d = dispK * (0.4 + v * 1.3);
+    const y0 = CFG.barMirror ? cy - h : baseY - h;
+    const hh = CFG.barMirror ? h * 2 : h;
+
+    if (dispK > 0.02) {                       // chromatic fringe, drawn under
+      scx.fillStyle = rgba(r, g * 0.15, b * 0.15, a * 0.5);
+      scx.fillRect(x - d - bw / 2, y0, bw, hh);
+      scx.fillStyle = rgba(r * 0.15, g * 0.15, b, a * 0.5);
+      scx.fillRect(x + d - bw / 2, y0, bw, hh);
+    }
+    scx.fillStyle = rgba(r, g, b, a);
+    scx.fillRect(x - bw / 2, y0, bw, hh);
+
+    if (CFG.barGlowTop && v > 0.5) {          // only genuine peaks get a tip
+      scx.fillStyle = rgba(255, 250, 255, Math.min(0.55, (v - 0.5) * 1.1));
+      const t = Math.max(1.2, bw * 0.9);
+      scx.fillRect(x - bw / 2, y0 - t * 0.5, bw, t);
+      if (CFG.barMirror) scx.fillRect(x - bw / 2, cy + h - t * 0.5, bw, t);
+    }
+    if (CFG.barCaps) {
+      const pv = peak[i];
+      if (pv > 0.08) {
+        const ph = pv * maxH;
+        const ca = Math.min(0.7, 0.15 + pv * 0.55);
+        scx.fillStyle = hueCss(paletteHue(i / Math.max(1, BARS - 1)), sat * 0.35, 0.88, ca);
+        scx.fillRect(x - bw / 2, (CFG.barMirror ? cy - ph : baseY - ph) - 2.5, Math.max(1.2, bw), 1.8);
+        if (CFG.barMirror) scx.fillRect(x - bw / 2, cy + ph + 0.7, Math.max(1.2, bw), 1.8);
+      }
+    }
+  }
+}
+
+/* =====================================================================
+   Foreground layer 2 — radial ring bars
+   ===================================================================== */
+let radialSpin = 0;
+function drawRadial(now, m, dt) {
+  if (!CFG.radial) return;
+  const cx = W / 2, cy = H / 2;
+  const N = Math.max(8, Math.round(CFG.radialCount));
+  const R0 = Math.min(W, H) * CFG.radialR * (1 + m.bass * 0.28 + beatPulse * 0.06);
+  const maxL = Math.min(W, H) * 0.20 * CFG.barGain;
+  radialSpin += dt * CFG.radialSpin * CFG.motion;
+  const TAU = Math.PI * 2;
+  scx.lineCap = 'butt';
+  for (let i = 0; i < N; i++) {
+    const bi = (i / N * BARS) | 0;
+    const v = smooth[Math.min(BARS - 1, bi)];
+    if (v < 0.004) continue;
+    const ang = radialSpin + (i / N) * TAU;
+    const ca = Math.cos(ang), sa = Math.sin(ang);
+    const len = v * maxL;
+    const ci = Math.min(COL.n - 1, bi);
+    const r = COL.r[ci], g = COL.g[ci], b = COL.b[ci];
+    const a = 0.11 + v * 0.5;
+    scx.lineWidth = Math.max(0.8, (TAU * R0 / N) * 0.7);
+    scx.strokeStyle = rgba(r, g, b, a);
+    scx.beginPath();
+    scx.moveTo(cx + ca * R0, cy + sa * R0);
+    scx.lineTo(cx + ca * (R0 + len), cy + sa * (R0 + len));
+    scx.stroke();
+    if (CFG.radialIn) {
+      const inLen = len * 0.6;
+      scx.strokeStyle = rgba(r, g, b, a * 0.55);
+      scx.beginPath();
+      scx.moveTo(cx + ca * (R0 - 2), cy + sa * (R0 - 2));
+      scx.lineTo(cx + ca * (R0 - 2 - inLen), cy + sa * (R0 - 2 - inLen));
+      scx.stroke();
+    }
+  }
+  // inner rim
+  scx.lineWidth = 1.2;
+  scx.strokeStyle = hueCss(paletteHue(0.5), CFG.sat/100, 0.6, 0.18 + m.overall * 0.4);
+  scx.beginPath(); scx.arc(cx, cy, R0 - 3, 0, TAU); scx.stroke();
+}
+
+/* =====================================================================
+   Foreground layer 3 — the orbital system (Keplerian orrery)
+     Each shell is a real ellipse: Kepler's equation is solved per body
+     so motion actually accelerates at periapsis, and shells obey the
+     third law (period ∝ a^1.5), so inner shells genuinely run faster.
+   ===================================================================== */
+let orbits = [], orbitKey = '';
+const TRAIL_N = 30;
+function buildOrbits() {
+  const N = Math.max(1, Math.min(24, Math.round(CFG.orbitCount)));
+  const B = Math.max(1, Math.min(12, Math.round(CFG.orbitBodies)));
+  const key = N + '/' + B;
+  if (key === orbitKey && orbits.length === N && buildOrbits.S) return;
+  // onCfgChanged() clears orbitKey on *every* settings tweak. If the system already has
+  // the right shape, just re-stamp the key — otherwise dragging any slider would wipe
+  // every comet trail and restart the whole orrery.
+  if (orbits.length === N && buildOrbits.S && buildOrbits.S.B === B) { orbitKey = key; return; }
+  orbitKey = key;
+
+  const GOLD = 2.399963229728653;          // golden angle: maximally spread ascending nodes
+  const PMAX = 66;                         // path sample budget per shell
+  const list = [];
+  for (let k = 0; k < N; k++) {
+    const f  = N > 1 ? k / (N - 1) : 0.5;              // 0..1 -> hue + which tones this shell hears
+    const rf = (k + 0.62) / N;                         // 0..1 -> radius
+    const u  = (k * 0.7548776662466927) % 1;           // low-discrepancy, never repeats a pattern
+    const v  = (k * 0.5698402909980532) % 1;
+    const aB = 0.16 + 0.84 * Math.pow(rf, 0.82);
+    const bodies = [];
+    for (let j = 0; j < B; j++) {
+      bodies.push({
+        M0: (j / B) * 6.283185307179586 + k * 0.9 + v * 2.1,
+        tx: new Float32Array(TRAIL_N),
+        ty: new Float32Array(TRAIL_N),
+        ts: new Float32Array(TRAIL_N),                 // depth shade recorded with each sample
+        ti: 0, n: 0,
+      });
+    }
+    list.push({
+      f,
+      aBase: aB,
+      nBase: 0.62 / Math.pow(aB, 1.5),                 // Kepler's third law: inner shells run faster
+      eBase: 0.24 + 0.76 * u,
+      incB : (0.22 + 0.78 * v) * (k % 2 ? -1 : 1),     // SIGNED: neighbours lean opposite ways
+      Om0  : k * GOLD,                                 // so projected ellipses cross, never nest
+      argp : k * 1.113 + u * 2.7,
+      dir  : (k % 3 === 1) ? -1 : 1,
+      pdir : (k % 4 === 2) ? -1 : 1,
+      seg  : Math.max(24, Math.min(PMAX - 2, Math.round(26 + rf * 30))),
+      bodies,
+    });
+  }
+  orbits = list;
+
+  // shared scratch, parked on the function object so `orbits` stays a plain array
+  const cnt = N * B;
+  const S = buildOrbits.S = {
+    B: B, cnt: cnt,
+    en : new Float32Array(N),              // per-shell band energy
+    hu : new Float32Array(N),              // per-shell hue
+    bx : new Float32Array(cnt), by: new Float32Array(cnt), bz: new Float32Array(cnt),
+    bs : new Float32Array(cnt), ba: new Float32Array(cnt),
+    ord: new Uint16Array(cnt),
+    px : new Float32Array(PMAX + 1), py: new Float32Array(PMAX + 1),
+    pd : new Float32Array(PMAX + 1), pb: new Uint8Array(PMAX + 1),
+  };
+  for (let i = 0; i < cnt; i++) S.ord[i] = i;
+}
+function keplerE(Mn, e) {                          // Newton–Raphson, 4 iterations is plenty
+  let E = Mn + e * Math.sin(Mn);
+  for (let i = 0; i < 4; i++) {
+    const d = (E - e * Math.sin(E) - Mn) / (1 - e * Math.cos(E));
+    E -= d;
+    if (d < 1e-6 && d > -1e-6) break;
+  }
+  return E;
+}
+let orbitT = 0;
+function drawOrbits(now, m, dt) {
+  if (!CFG.orbits) return;
+  buildOrbits();
+  const NS = orbits.length, S = buildOrbits.S;
+  if (!NS || !S) return;
+
+  /* new keys are read defensively so this is safe before they are registered */
+  const depthAmt = Math.max(0, Math.min(2, CFG.orbitDepth !== undefined ? CFG.orbitDepth : 1));
+  const camAmt   = Math.max(0, Math.min(2, CFG.orbitCam   !== undefined ? CFG.orbitCam   : 1)) * (RM ? 0.3 : 1);
+  const coreAmt  = Math.max(0, Math.min(2, CFG.orbitCore  !== undefined ? CFG.orbitCore  : 1));
+  const react    = Math.max(0.2, CFG.reactivity !== undefined ? CFG.reactivity : 1);
+  const pathOn   = !!CFG.orbitPath, trailOn = !!CFG.orbitTrail;
+
+  orbitT += dt * CFG.orbitSpeed * CFG.motion;
+
+  const TAU2 = 6.283185307179586, NBK = 5, CS = 64;
+  const cx = W * 0.5, cy = H * 0.5;
+  const R   = Math.min(W, H) * 0.335;      // sized so the projected system fills but fits the frame
+  const MIN = Math.min(W, H);
+  const sat = Math.max(0, Math.min(1, CFG.sat / 100));
+  const B = S.B, cnt = S.cnt;
+  const bx = S.bx, by = S.by, bz = S.bz, bs = S.bs, ba = S.ba, ord = S.ord;
+  const px = S.px, py = S.py, pd = S.pd, pb = S.pb;
+
+  /* ---- camera ----------------------------------------------------------
+     One shared pitch + yaw for the whole system, so every shell is read
+     against the same horizon: that is what turns concentric rings into an
+     orrery. Per-shell inclination is then a *relative* tilt on top. */
+  const pitch = 0.13 + CFG.orbitTilt * 0.60 + Math.sin(flowT * 0.11) * 0.07 * camAmt;
+  const cP = Math.cos(pitch), sP = Math.sin(pitch);
+  const yaw = orbitT * 0.06 * camAmt + flowT * 0.010 * camAmt;
+  const focal = R * (4.7 - 1.75 * Math.min(1.5, depthAmt));  // shorter focal = deeper perspective
+  const fMinD = focal * 0.32;
+  const occR  = MIN * 0.075;
+  const breathBase = (m.bass * 0.30 + m.sub * 0.14 + beatPulse * 0.13) * CFG.orbitBreath;
+
+  /* ---- per-shell energy -------------------------------------------------
+     Each shell listens to its own narrow slice of the spectrum (so 14 shells
+     are 14 different readings, not 14 copies of "loud"), then every shell is
+     contrasted against the mean so prominent tones stand out and the rest
+     stay quiet instead of everything lighting up together. */
+  const win = Math.max(1, Math.round(BARS / (NS * 3.2)));
+  let esum = 0;
+  for (let k = 0; k < NS; k++) {
+    const f = orbits[k].f, bfp = f * 4;
+    let b5;
+    if (bfp < 1)      b5 = m.sub  + (m.bass   - m.sub ) * bfp;
+    else if (bfp < 2) b5 = m.bass + (m.mid    - m.bass) * (bfp - 1);
+    else if (bfp < 3) b5 = m.mid  + (m.high   - m.mid ) * (bfp - 2);
+    else              b5 = m.high + (m.treble - m.high) * Math.min(1, bfp - 3);
+    let spec = 0;
+    if (smooth && BARS > 4) {
+      const c = Math.round(f * (BARS - 1));
+      let lo = c - win; if (lo < 0) lo = 0;
+      let hi = c + win + 1; if (hi > BARS) hi = BARS;
+      let acc = 0;
+      for (let i = lo; i < hi; i++) acc += smooth[i];
+      spec = acc / (hi - lo);
+    }
+    const e = (spec * 0.62 + b5 * 0.95) * react;
+    S.en[k] = e < 0 ? 0 : e;
+    esum += S.en[k];
+  }
+  const emean = esum / NS + 0.02;
+  for (let k = 0; k < NS; k++) {
+    let em = Math.pow((S.en[k] + 0.03) / emean, 0.85);
+    if (em < 0.22) em = 0.22; else if (em > 2.3) em = 2.3;
+    let e = S.en[k] * em;
+    S.en[k] = e > 1.3 ? 1.3 : (e < 0.02 ? 0.02 : e);
+    S.hu[k] = paletteHue(orbits[k].f);
+  }
+
+  /* ---- body sprite atlas ------------------------------------------------
+     One soft radial per shell (+ one for the core), rebuilt only when the
+     palette actually moves. Bodies are then a scaled drawImage each, so a
+     14x6 system never builds a gradient per body per frame. */
+  let atl = drawOrbits._atl;
+  if (!atl) { const p = mk(); atl = drawOrbits._atl = { c: p[0], x: p[1], w: 0, sig: '' }; }
+  const need = (NS + 1) * CS;
+  if (atl.w !== need) { atl.c.width = need; atl.c.height = CS; atl.w = need; atl.sig = ''; }
+  const sig = NS + '|' + CFG.palette + '|' + Math.round((hueBase + hueKick) * 0.5) + '|' +
+              Math.round(CFG.sat) + '|' + Math.round(CFG.light) + '|' + Math.round(CFG.hueSpread);
+  if (atl.sig !== sig) {
+    atl.sig = sig;
+    const ax = atl.x;
+    ax.clearRect(0, 0, need, CS);
+    for (let k = 0; k <= NS; k++) {
+      const core = (k === NS);
+      const h = core ? paletteHue(0.12) : S.hu[k];
+      const mx = k * CS + CS * 0.5;
+      const g = ax.createRadialGradient(mx, CS * 0.5, 0, mx, CS * 0.5, CS * 0.5);
+      g.addColorStop(0,    hueCss(h + 34, sat * 0.30, 0.90, core ? 0.60 : 0.72));
+      g.addColorStop(0.16, hueCss(h + 16, sat * 0.70, 0.74, core ? 0.26 : 0.40));
+      g.addColorStop(0.42, hueCss(h,      sat,        0.56, core ? 0.09 : 0.14));
+      g.addColorStop(1,    hueCss(h,      sat,        0.50, 0));
+      ax.fillStyle = g;
+      ax.fillRect(k * CS, 0, CS, CS);
+    }
+  }
+  const atlC = atl.c;
+
+  /* ---- trail sampling is time-gated, so trail length is the same at 60
+          and 144 fps and does not get more expensive on a fast display ---- */
+  const TSTEP = 0.01428;
+  let pushT = false;
+  if (trailOn) {
+    let tacc = (drawOrbits._tacc || 0) + dt;
+    if (tacc >= TSTEP) { pushT = true; tacc -= TSTEP; if (tacc > TSTEP) tacc = 0; }
+    drawOrbits._tacc = tacc;
+  }
+  const jumpSq = (R * 0.75) * (R * 0.75);
+
+  scx.save();
+  scx.lineCap = 'round';
+  scx.lineJoin = 'round';
+
+  /* ===================== shells: paths + body positions ================= */
+  for (let k = 0; k < NS; k++) {
+    const o = orbits[k];
+    const en = S.en[k], hue = S.hu[k];
+    let breath = 1 + breathBase * (0.68 + 0.32 * Math.sin(flowT * 1.7 - o.f * 4.4));
+    if (breath > 1.45) breath = 1.45;      // bounded: the system can never inflate off-screen
+    const a  = R * o.aBase * breath;
+    const ec = Math.max(0, Math.min(0.72, CFG.orbitEcc * o.eBase));
+    const bA = a * Math.sqrt(1 - ec * ec);
+    const inc = o.incB * (0.20 + CFG.orbitTilt * 0.55);
+    const cIn = Math.cos(inc), sIn = Math.sin(inc);
+    const arg = o.argp + orbitT * CFG.orbitPrec * 0.035 * o.pdir;
+    const cAr = Math.cos(arg), sAr = Math.sin(arg);
+    const Om  = o.Om0 + yaw + orbitT * CFG.orbitPrec * 0.085 * o.dir / (0.45 + o.f);
+    const cOm = Math.cos(Om), sOm = Math.sin(Om);
+    // this shell's own front/back extent, so every shell shows real depth contrast
+    const zRef = a * (sP * 0.9 + Math.abs(sIn) * cP) + 1e-4;
+
+    /* ---- orbit path, bucketed by depth: the half behind the core is
+            drawn thinner and dimmer than the half in front ---- */
+    if (pathOn && en > 0.015) {
+      const SEG = o.seg, dA = TAU2 / SEG;
+      for (let i = 0; i <= SEG; i++) {
+        const E = i * dA;
+        const u = a * (Math.cos(E) - ec), w = bA * Math.sin(E);
+        const rx = u * cAr - w * sAr, ry = u * sAr + w * cAr;
+        const iy = ry * cIn, iz = ry * sIn;
+        const nx = rx * cOm - iy * sOm, ny = rx * sOm + iy * cOm;
+        const zc = ny * sP + iz * cP;                    // + = toward the viewer
+        const yv = ny * cP - iz * sP;
+        let dv = focal - zc; if (dv < fMinD) dv = fMinD;
+        const sc = focal / dv;
+        px[i] = cx + nx * sc;
+        py[i] = cy + yv * sc;
+        let ds = 0.5 + 0.5 * (zc / zRef);
+        pd[i] = ds < 0 ? 0 : (ds > 1 ? 1 : ds);
+      }
+      for (let i = 0; i < SEG; i++) {
+        let q = ((pd[i] + pd[i + 1]) * 0.5 * NBK) | 0;
+        pb[i] = q >= NBK ? NBK - 1 : (q < 0 ? 0 : q);
+      }
+      const wBase = 0.55 + en * 3.1;
+      for (let q = 0; q < NBK; q++) {
+        const t = (q + 0.5) / NBK;                       // 0 = far side, 1 = near side
+        let dep = 1 + (t - 0.5) * 1.55 * depthAmt;
+        if (dep < 0.08) dep = 0.08;
+        let al = (0.028 + en * 0.30) * dep;
+        if (al > 0.55) al = 0.55;
+        if (al < 0.006) continue;
+        let last = -2, has = false;
+        scx.beginPath();
+        for (let i = 0; i < SEG; i++) {
+          if (pb[i] !== q) continue;
+          if (last !== i) scx.moveTo(px[i], py[i]);
+          scx.lineTo(px[i + 1], py[i + 1]);
+          last = i + 1; has = true;
+        }
+        if (!has) continue;
+        scx.lineWidth = Math.max(0.4, wBase * (0.45 + 0.72 * t));
+        scx.strokeStyle = hueCss(hue + (t - 0.5) * 26, sat, 0.42 + 0.22 * t, al);
+        scx.stroke();
+      }
+    }
+
+    /* ---- bodies: solve Kepler, project, stash for the depth-sorted pass ---- */
+    const nMean = o.dir * o.nBase;
+    const mass  = 0.72 + 0.55 * (1 - o.f);
+    const szMax = MIN * 0.12;
+    const base  = k * B;
+    for (let j = 0; j < B; j++) {
+      const bd = o.bodies[j];
+      const E = keplerE(bd.M0 + orbitT * nMean, ec);
+      const u = a * (Math.cos(E) - ec), w = bA * Math.sin(E);
+      const rx = u * cAr - w * sAr, ry = u * sAr + w * cAr;
+      const iy = ry * cIn, iz = ry * sIn;
+      const nx = rx * cOm - iy * sOm, ny = rx * sOm + iy * cOm;
+      const zc = ny * sP + iz * cP;
+      const yv = ny * cP - iz * sP;
+      let dv = focal - zc; if (dv < fMinD) dv = fMinD;
+      const sc = focal / dv;
+      const X = cx + nx * sc, Y = cy + yv * sc;
+      let ds = 0.5 + 0.5 * (zc / zRef); ds = ds < 0 ? 0 : (ds > 1 ? 1 : ds);
+      let sh = 1 + (ds - 0.5) * 1.6 * depthAmt; if (sh < 0.08) sh = 0.08;
+      const peri = 1 + ec * Math.cos(E) * 0.55;          // hot and fast at periapsis
+
+      let sz = (3.2 + en * 24 + beatPulse * 8 * (0.25 + en)) * mass * sc * (0.55 + 0.72 * ds) * peri;
+      if (sz < 2) sz = 2; else if (sz > szMax) sz = szMax;
+
+      let al = (0.14 + en * 0.58) * sh * peri;
+      if (zc < 0 && coreAmt > 0.01) {                    // eclipsed by the core
+        const ddx = X - cx, ddy = Y - cy;
+        const dd = Math.sqrt(ddx * ddx + ddy * ddy);
+        if (dd < occR) al *= 0.15 + 0.85 * (dd / occR);
+      }
+      if (al > 0.75) al = 0.75; else if (al < 0.012) al = 0.012;
+
+      const id = base + j;
+      bx[id] = X; by[id] = Y; bz[id] = zc; bs[id] = sz; ba[id] = al;
+
+      if (trailOn) {
+        if (pushT) {
+          if (bd.n > 0) {
+            const lp = (bd.ti - 1 + TRAIL_N) % TRAIL_N;
+            const jx = X - bd.tx[lp], jy = Y - bd.ty[lp];
+            if (jx * jx + jy * jy > jumpSq) bd.n = 0;     // resize / preset jump: drop stale trail
+          }
+          bd.tx[bd.ti] = X; bd.ty[bd.ti] = Y; bd.ts[bd.ti] = sh;
+          bd.ti = (bd.ti + 1) % TRAIL_N;
+          if (bd.n < TRAIL_N) bd.n++;
+        }
+      } else if (bd.n) bd.n = 0;
+    }
+  }
+
+  /* ===================== depth sort ====================================
+     Insertion sort: the order barely changes between frames, so this is
+     effectively O(n) and allocates nothing. */
+  for (let i = 1; i < cnt; i++) {
+    const v = ord[i], kz = bz[v];
+    let j = i - 1;
+    while (j >= 0 && bz[ord[j]] > kz) { ord[j + 1] = ord[j]; j--; }
+    ord[j + 1] = v;
+  }
+
+  /* ===================== draw: far half, core, near half ================ */
+  const CH = cnt > 48 ? 3 : (cnt > 24 ? 4 : 5);          // comet-trail taper steps
+  for (let pass = 0; pass < 2; pass++) {
+    if (pass === 1 && coreAmt > 0.001) {
+      /* reference plane: the horizon every shell is inclined against.
+         Far half dim, near half bright — the cheapest 3D cue in the scene. */
+      if (pathOn) {
+        const rr = R * 0.33 * (1 + breathBase * 0.5);
+        const ry2 = Math.max(0.6, rr * cP);
+        const rh = paletteHue(0.5);
+        scx.lineWidth = 0.8 + m.mid * 2.6;
+        scx.strokeStyle = hueCss(rh, sat, 0.48, Math.min(0.09, (0.010 + m.overall * 0.05) * coreAmt));
+        scx.beginPath(); scx.ellipse(cx, cy, rr, ry2, 0, Math.PI, TAU2); scx.stroke();
+        scx.strokeStyle = hueCss(rh + 18, sat, 0.62, Math.min(0.20, (0.026 + m.overall * 0.12) * coreAmt));
+        scx.beginPath(); scx.ellipse(cx, cy, rr, ry2, 0, 0, Math.PI); scx.stroke();
+      }
+      /* the core: two soft passes from the atlas. Peak additive alpha is
+         0.60 * (0.15 + 0.30) ~= 0.27, so it glows but can never blow out. */
+      let cr = MIN * (0.018 + m.sub * 0.045 + m.bass * 0.020 + beatPulse * 0.014);
+      const crMax = MIN * 0.05;
+      if (cr > crMax) cr = crMax;
+      const hR = cr * 7.5, iR = cr * 2.6;
+      scx.globalAlpha = Math.min(0.15, (0.055 + m.overall * 0.07 + beatPulse * 0.05) * coreAmt);
+      scx.drawImage(atlC, NS * CS, 0, CS, CS, cx - hR, cy - hR, hR + hR, hR + hR);
+      scx.globalAlpha = Math.min(0.30, (0.10 + m.sub * 0.12 + beatPulse * 0.10) * coreAmt);
+      scx.drawImage(atlC, NS * CS, 0, CS, CS, cx - iR, cy - iR, iR + iR, iR + iR);
+      scx.globalAlpha = 1;
+    }
+
+    for (let q = 0; q < cnt; q++) {
+      const i = ord[q];
+      const far = bz[i] < 0;
+      if (far !== (pass === 0)) continue;
+      const k = (i / B) | 0;
+      const o = orbits[k];
+      const hue = S.hu[k], en = S.en[k];
+
+      if (trailOn) {                                      // comet trail: tapers in width AND alpha
+        const bd = o.bodies[i - k * B];
+        const n = bd.n;
+        if (n > 2) {
+          const per = n / CH, hw = 0.6 + en * 3.4, ha = 0.05 + en * 0.34;
+          for (let c = 0; c < CH; c++) {
+            let a0 = Math.round(c * per), a1 = Math.round((c + 1) * per);
+            if (a1 > n - 1) a1 = n - 1;
+            if (a1 - a0 < 1) continue;
+            const t = 1 - (c + 0.5) / CH;                 // 1 = head, 0 = tail
+            const id0 = (bd.ti - 1 - a0 + TRAIL_N * 2) % TRAIL_N;
+            let dm = bd.ts[id0];
+            dm = dm > 1.5 ? 1.5 : (dm < 0.08 ? 0.08 : dm);
+            let tA = ha * t * t * dm;
+            if (tA <= 0.008) continue;
+            if (tA > 0.5) tA = 0.5;
+            scx.beginPath();
+            for (let z = a0; z <= a1; z++) {
+              const id = (bd.ti - 1 - z + TRAIL_N * 2) % TRAIL_N;
+              if (z === a0) scx.moveTo(bd.tx[id], bd.ty[id]);
+              else scx.lineTo(bd.tx[id], bd.ty[id]);
+            }
+            scx.lineWidth = Math.max(0.35, hw * t * t + 0.2);
+            scx.strokeStyle = hueCss(hue + 26 * (1 - t), sat, 0.46 + 0.24 * t, tA);
+            scx.stroke();
+          }
+        }
+      }
+
+      const sz = bs[i];
+      scx.globalAlpha = ba[i];
+      scx.drawImage(atlC, k * CS, 0, CS, CS, bx[i] - sz, by[i] - sz, sz + sz, sz + sz);
+      scx.globalAlpha = 1;
+    }
+  }
+
+  scx.restore();
+}
+
+/* =====================================================================
+   Foreground layer 4 — rainbow strings (the waveform, made the hero)
+     One stroked path per pass, coloured by a multi-stop hue gradient, so
+     a full spectrum runs along the string instead of three flat RGB copies.
+   ===================================================================== */
+function stringGradient(x0, x1, hueOff, alpha) {
+  const g = scx.createLinearGradient(x0, 0, x1, 0);
+  const STOPS = 18, sat = CFG.sat / 100, li = Math.min(0.78, CFG.light / 100 + 0.14);
+  for (let i = 0; i <= STOPS; i++) {
+    const t = i / STOPS;
+    g.addColorStop(t, hueCss(paletteHue(t) + hueOff, sat, li, alpha));
+  }
+  return g;
+}
+function drawStrings(now, m) {
+  if (!CFG.strings || !waveBuf) return;
+  const cy = H / 2, pad = W * 0.02, usable = W - pad * 2;
+  const count = Math.max(1, Math.round(CFG.stringCount));
+  const passes = Math.max(0, Math.round(CFG.stringGlow));
+  const n = Math.min(720, waveBuf.length >> 1);
+  const sStep = waveBuf.length / n;
+  const live = !!(analyser && curSource);
+  const amp = H * 0.30 * (0.22 + m.overall * 1.15) * CFG.stringAmp;
+  const baseW = CFG.stringW;
+
+  scx.lineJoin = 'round'; scx.lineCap = 'round';
+
+  for (let s = 0; s < count; s++) {
+    const sp = count > 1 ? s / (count - 1) : 0;
+    const phase = (s * 137) | 0;
+    const aScale = 1 - sp * 0.45;
+    const yOff = (sp - 0.5) * H * 0.10 * (count > 1 ? 1 : 0);
+    const hueOff = s * 47 + Math.sin(flowT * 0.5 + s) * 18;
+    const standing = Math.sin(flowT * (1.1 + s * 0.3)) * 0.35 + 0.65;
+
+    const mirrors = CFG.stringMirror ? [1, -1] : [1];
+    for (const sgn of mirrors) {
+      const path = new Path2D();
+      if (CFG.stringWrap) {
+        const cx = W / 2, R = Math.min(W, H) * (0.26 + sp * 0.1);
+        for (let j = 0; j <= n; j++) {
+          const wv = live ? (waveBuf[((j * sStep) | 0 + phase) % waveBuf.length] - 128) / 128
+                          : Math.sin(j * 0.09 + flowT * 2 + s) * 0.45;
+          const ang = (j / n) * 6.2832 + flowT * 0.2 * (s + 1);
+          const rr = R + sgn * wv * amp * aScale * standing * 0.7;
+          const x = cx + Math.cos(ang) * rr, y = cy + Math.sin(ang) * rr;
+          j === 0 ? path.moveTo(x, y) : path.lineTo(x, y);
+        }
+        path.closePath();
+      } else {
+        for (let j = 0; j <= n; j++) {
+          const wv = live ? (waveBuf[(((j * sStep) | 0) + phase) % waveBuf.length] - 128) / 128
+                          : Math.sin(j * 0.055 + flowT * 2.2 + s * 1.7) * 0.5 * Math.sin(j / n * 3.14159);
+          const env = Math.sin((j / n) * 3.14159);            // pinned ends, like a real string
+          const x = pad + (j / n) * usable;
+          const y = cy + yOff + sgn * wv * amp * aScale * standing * (0.35 + env * 0.65);
+          j === 0 ? path.moveTo(x, y) : path.lineTo(x, y);
+        }
+      }
+      for (let p = passes; p >= 0; p--) {
+        const wMul = 1 + p * 2.4, aMul = p === 0 ? 0.62 : 0.055 / p;
+        scx.lineWidth = baseW * wMul * aScale;
+        scx.strokeStyle = stringGradient(pad, pad + usable, hueOff, aMul);
+        scx.stroke(path);
+      }
+    }
+  }
+}
+
+/* =====================================================================
+   Foreground layer 5 — phase scope (Lissajous of wave vs delayed wave)
+   ===================================================================== */
+function drawLissajous(now, m) {
+  if (!CFG.lissajous || !waveBuf) return;
+  const cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.16 * (0.6 + m.overall * 1.6);
+  const n = Math.min(512, waveBuf.length >> 2);
+  const lag = (waveBuf.length / 4) | 0;
+  scx.lineWidth = 1.3;
+  scx.strokeStyle = hueCss(paletteHue(0.3), CFG.sat / 100, 0.66, 0.32 + m.overall * 0.4);
+  scx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const a = (waveBuf[i] - 128) / 128, b = (waveBuf[(i + lag) % waveBuf.length] - 128) / 128;
+    const x = cx + a * R, y = cy + b * R;
+    i === 0 ? scx.moveTo(x, y) : scx.lineTo(x, y);
+  }
+  scx.stroke();
+}
+
+/* =====================================================================
+   Foreground layer 6 — particles (struct-of-arrays, additive)
+   ===================================================================== */
+let PMAX = 0, pn = 0;
+let px, py, pvx, pvy, plife, pmax, phue, psize;
+function allocParticles(nmax) {
+  if (PMAX === nmax) return;
+  PMAX = nmax; pn = 0;
+  px = new Float32Array(nmax); py = new Float32Array(nmax);
+  pvx = new Float32Array(nmax); pvy = new Float32Array(nmax);
+  plife = new Float32Array(nmax); pmax = new Float32Array(nmax);
+  phue = new Float32Array(nmax); psize = new Float32Array(nmax);
+}
+function emit(x, y, vx, vy, life, hue, size) {
+  if (pn >= PMAX) return;
+  const i = pn++;
+  px[i] = x; py[i] = y; pvx[i] = vx; pvy[i] = vy;
+  plife[i] = life; pmax[i] = life; phue[i] = hue; psize[i] = size;
+}
+function killParticle(i) {                          // swap-remove keeps the array dense
+  const j = --pn;
+  if (i !== j) {
+    px[i]=px[j]; py[i]=py[j]; pvx[i]=pvx[j]; pvy[i]=pvy[j];
+    plife[i]=plife[j]; pmax[i]=pmax[j]; phue[i]=phue[j]; psize[i]=psize[j];
+  }
+}
+function drawParticles(now, m, dt) {
+  if (!CFG.particles) { pn = 0; return; }
+  allocParticles(Math.max(100, Math.round(CFG.partMax)));
+  const cx = W / 2, cy = H / 2;
+
+  /* emission from bar tips */
+  const emitN = Math.round(BARS * 0.12 * CFG.partRate);
+  const pad = W * 0.02, usable = W - pad * 2, step = usable / BARS, maxH = H * 0.34 * CFG.barGain;
+  for (let e = 0; e < emitN; e++) {
+    const i = (Math.random() * BARS) | 0;
+    const v = smooth[i];
+    if (v < 0.12) continue;
+    const x = pad + i * step + step / 2;
+    const up = Math.random() < 0.5 ? -1 : 1;
+    emit(x + (Math.random() - 0.5) * step, cy + up * v * maxH,
+         (Math.random() - 0.5) * 26, up * (12 + v * 130) * (0.4 + Math.random()),
+         0.5 + Math.random() * 1.3, paletteHue(i / BARS), 1 + v * 2.4);
+  }
+  /* beat burst from the core */
+  if (CFG.partSpark && M.beat) {
+    const burst = Math.round(40 * CFG.partRate * (0.4 + M.beatStrength));
+    for (let e = 0; e < burst; e++) {
+      const a = Math.random() * 6.2832, sp = 60 + Math.random() * 420 * (0.4 + m.bass * 2);
+      emit(cx, cy, Math.cos(a) * sp, Math.sin(a) * sp, 0.6 + Math.random() * 1.5,
+           paletteHue(Math.random()), 1.2 + Math.random() * 2.6);
+    }
+  }
+
+  const pull = CFG.partGrav * 240;
+  const drag = Math.pow(0.36, dt);
+  const sat = CFG.sat / 100;
+  for (let i = pn - 1; i >= 0; i--) {
+    plife[i] -= dt;
+    if (plife[i] <= 0) { killParticle(i); continue; }
+    const dx = cx - px[i], dy = cy - py[i];
+    const d2 = dx * dx + dy * dy + 900;
+    const inv = 1 / Math.sqrt(d2);
+    pvx[i] += dx * inv * pull * dt; pvy[i] += dy * inv * pull * dt;
+    pvx[i] *= drag; pvy[i] *= drag;
+    px[i] += pvx[i] * dt; py[i] += pvy[i] * dt;
+    const lp = plife[i] / pmax[i];
+    const a = Math.min(1, lp * lp * (0.6 + m.overall * 1.2));
+    if (a < 0.02) continue;
+    const sz = psize[i] * (0.5 + lp);
+    scx.fillStyle = hueCss(phue[i], sat, 0.62 + lp * 0.28, a);
+    scx.fillRect(px[i] - sz * 0.5, py[i] - sz * 0.5, sz, sz);
+  }
+}
+
+/* =====================================================================
+   Foreground layer 7 — beat shockwaves with chromatic split
+   ===================================================================== */
+let shocks = [];
+function pushShock(now, strength) {
+  if (!CFG.shock || RM) return;
+  shocks.push({ born: now, dur: 780 + Math.random() * 420, s: 0.4 + strength * 0.9,
+                seed: Math.random() * 64, wob: 0.05 + Math.random() * 0.10 });
+  if (shocks.length > 24) shocks.shift();
+}
+
+function drawShocks(now, m) {
+  if (!CFG.shock) { shocks.length = 0; return; }
+  const cx = W / 2, cy = H / 2, Rmax = Math.max(W, H) * 0.62;
+  const sat = themeSat();
+  shocks = shocks.filter(s => now - s.born < s.dur);
+  const ab = CFG.shockAb;
+  scx.save();
+  for (const s of shocks) {
+    const p = (now - s.born) / s.dur;
+    const rad = Rmax * (1 - Math.pow(1 - p, 3));
+    if (rad < 6) continue;
+    // quadratic fade: the tail dies away instead of cutting off
+    const a = (1 - p) * (1 - p) * 0.30 * s.s;
+    if (a < 0.004) continue;
+
+    // A band with a soft radial falloff, not a stroked circle. A stroke has
+    // a hard edge and reads as drawn geometry; a gradient across the
+    // thickness reads as a pressure wave passing through.
+    const band = Math.max(5, rad * 0.15 * (0.45 + (1 - p)));
+    const inner = Math.max(1, rad - band), outer = rad + band;
+    const hue = paletteHue(0.5 + p * 0.28);
+    const g = scx.createRadialGradient(cx, cy, inner, cx, cy, outer);
+    g.addColorStop(0.00, hueCss(hue, sat, 0.55, 0));
+    g.addColorStop(0.40, hueCss(hue - ab * 18, sat, 0.60, a * 0.5));
+    g.addColorStop(0.50, hueCss(hue, sat * 0.45, 0.80, a));
+    g.addColorStop(0.60, hueCss(hue + ab * 18, sat, 0.60, a * 0.5));
+    g.addColorStop(1.00, hueCss(hue, sat, 0.55, 0));
+    scx.fillStyle = g;
+
+    // Fluid outline: radius wobbles with angle from evolving value noise,
+    // so the ring deforms as it travels rather than staying a perfect
+    // circle. Outer ring then inner ring, filled even-odd = an annulus.
+    const N = 72, wob = s.wob * (0.09 + p * 0.22);
+    scx.beginPath();
+    for (let i = 0; i <= N; i++) {
+      const th = i / N * 6.2832, ct = Math.cos(th), st = Math.sin(th);
+      const n = vnoise(ct * 1.7 + s.seed, st * 1.7 + s.seed + p * 1.5);
+      const rr = outer * (1 + (n - 0.5) * wob);
+      const x = cx + ct * rr, y = cy + st * rr;
+      i === 0 ? scx.moveTo(x, y) : scx.lineTo(x, y);
+    }
+    scx.closePath();
+    for (let i = N; i >= 0; i--) {
+      const th = i / N * 6.2832, ct = Math.cos(th), st = Math.sin(th);
+      const n = vnoise(ct * 1.7 + s.seed + 9.1, st * 1.7 + s.seed + p * 1.5 + 9.1);
+      const rr = inner * (1 + (n - 0.5) * wob);
+      const x = cx + ct * rr, y = cy + st * rr;
+      i === N ? scx.moveTo(x, y) : scx.lineTo(x, y);
+    }
+    scx.closePath();
+    scx.fill('evenodd');
+  }
+  scx.restore();
+}
+
+/* =====================================================================
+   Composite + post-processing
+   ===================================================================== */
+let scanPat = null;
+function buildScanPattern() {
+  const c = document.createElement('canvas'); c.width = 1; c.height = 4;
+  const x = c.getContext('2d');
+  x.fillStyle = 'rgba(0,0,0,1)'; x.fillRect(0, 0, 1, 1);
+  scanPat = ctx.createPattern(c, 'repeat');
+}
+function applyBloom() {
+  if (CFG.bloom <= 0) return;
+  const lv = Math.max(1, Math.min(4, Math.round(CFG.bloomLv)));
+  const rad = CFG.bloomRad;
+  for (let i = 0; i < lv; i++) {
+    const [c, cx2] = BL[i];
+    cx2.setTransform(1, 0, 0, 1, 0, 0);
+    cx2.globalCompositeOperation = 'source-over';
+    cx2.globalAlpha = 1;
+    cx2.clearRect(0, 0, c.width, c.height);
+    if (hasFilter) cx2.filter = 'contrast(' + CFG.bloomThr.toFixed(2) + ') blur(' + (rad / (1 << i)).toFixed(2) + 'px)';
+    cx2.drawImage(atmoC, 0, 0, c.width, c.height);
+    cx2.globalAlpha = 0.55;                       // hero blooms, but less
+    cx2.drawImage(heroC, 0, 0, c.width, c.height);
+    cx2.globalAlpha = 1;
+    if (hasFilter) cx2.filter = 'none';
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  const ab = CFG.aberration;
+  for (let i = 0; i < lv; i++) {
+    const [c] = BL[i];
+    const w = canvas.width, h = canvas.height;
+    const bx = SHKX * RS, by = SHKY * RS, bp = SHKP * RS;
+    ctx.globalAlpha = Math.min(1, CFG.bloom * (0.42 / (i + 1)));
+    if (bp > 0.01) ctx.drawImage(c, bx - bp, by - bp, w + bp * 2, h + bp * 2);
+    else ctx.drawImage(c, 0, 0, w, h);
+    if (ab > 0.05) {                              // cheap chromatic fringe on the glow
+      const k = ab * 0.0026 * (i + 1);
+      ctx.globalAlpha = Math.min(1, CFG.bloom * (0.16 / (i + 1)));
+      ctx.drawImage(c, -w * k, -h * k, w * (1 + 2 * k), h * (1 + 2 * k));
+      ctx.drawImage(c,  w * k * 0.6,  h * k * 0.6, w * (1 - 1.2 * k), h * (1 - 1.2 * k));
+    }
+  }
+  ctx.restore();
+}
+function applyPost(now, m) {
+  ctx.save();
+  ctx.setTransform(RS, 0, 0, RS, 0, 0);
+  if (CFG.vignette > 0.01) {
+    const g = ctx.createRadialGradient(W/2, H/2, Math.min(W,H) * 0.25, W/2, H/2, Math.max(W,H) * 0.72);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(0,0,0,' + Math.min(0.96, CFG.vignette) + ')');
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+  if (CFG.grain > 0.002) {
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = CFG.grain;
+    const ox = (Math.random() * 220) | 0, oy = (Math.random() * 220) | 0;
+    for (let x = -ox; x < W; x += 220) for (let y = -oy; y < H; y += 220) ctx.drawImage(grainC, x, y);
+    ctx.globalAlpha = 1;
+  }
+  if (CFG.scanlines > 0.005) {
+    if (!scanPat) buildScanPattern();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = CFG.scanlines;
+    ctx.fillStyle = scanPat; ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+}
+
+/* =====================================================================
+   HUD
+   ===================================================================== */
+const hudEl = document.getElementById('hud');
+let lastHudT = 0, fps = 0, fpsN = 0, lastFpsT = 0;
+const meterHold = { mSub:0, mBass:0, mMid:0, mHi:0, mTreb:0 };
+function updateHud(now, m) {
+  hudEl.classList.toggle('off', !CFG.hud);
+  if (!CFG.hud || now - lastHudT < 110) return;
+  lastHudT = now;
+  document.getElementById('src').textContent = 'SOURCE ' + (curSource ? curSource.label : '—');
+  document.getElementById('fps').textContent = CFG.showFps ? fps : '—';
+  const db = curSource && m.rms > 0 ? Math.max(-70, Math.round(20 * Math.log10(m.rms))) : 0;
+  document.getElementById('dB').textContent = (curSource ? db : 0) + ' dB';
+  document.getElementById('bpm').textContent = m.bpm ? Math.round(m.bpm) + ' BPM' : '— BPM';
+  document.getElementById('feat').textContent =
+    'CENTROID ' + (m.centroid * 100).toFixed(0) + '% · FLUX ' + (m.flux * 100).toFixed(0) +
+    ' · BARS ' + BARS + ' · PART ' + pn;
+  const set = (id, v) => {
+    const el = document.getElementById(id);
+    const val = Math.max(0, Math.min(1, v));
+    el.firstElementChild.style.width = (val * 100).toFixed(1) + '%';
+    meterHold[id] = Math.max(val, meterHold[id] * 0.97);
+    el.lastElementChild.style.left = (meterHold[id] * 100).toFixed(1) + '%';
+  };
+  const k = 3.4 * CFG.reactivity;
+  set('mSub', m.sub * k); set('mBass', m.bass * k); set('mMid', m.mid * k);
+  set('mHi', m.high * k); set('mTreb', m.treble * k);
+  let n = 0; for (const key of LAYER_KEYS) if (CFG[key]) n++;
+  document.getElementById('layerCount').textContent = n + '/' + LAYER_KEYS.length;
+}
+
+/* =====================================================================
+   Config change handling — reallocate only what actually changed
+   ===================================================================== */
+let prev = { barCount:CFG.barCount, quality:CFG.quality, nebulaRes:CFG.nebulaRes,
+             starCount:CFG.starCount, fft:CFG.fft, fMin:CFG.fMin, fMax:CFG.fMax, partMax:CFG.partMax,
+             floorDb:CFG.floorDb, ceilDb:CFG.ceilDb, tilt:CFG.tilt };
+function onCfgChanged(force) {
+  if (force || CFG.quality !== prev.quality) { prev.quality = CFG.quality; resize(); }
+  if (force || Math.round(CFG.barCount) !== Math.round(prev.barCount)) {
+    prev.barCount = CFG.barCount;
+    allocBars(Math.max(16, Math.min(768, Math.round(CFG.barCount))));
+    targets = new Float32Array(BARS);
+  }
+  if (force || CFG.nebulaRes !== prev.nebulaRes) { prev.nebulaRes = CFG.nebulaRes; buildNebula(); }
+  if (force || Math.round(CFG.starCount) !== Math.round(prev.starCount)) { prev.starCount = CFG.starCount; buildStars(); }
+  if (force || CFG.fft !== prev.fft || CFG.fMin !== prev.fMin || CFG.fMax !== prev.fMax ||
+      CFG.floorDb !== prev.floorDb || CFG.ceilDb !== prev.ceilDb || CFG.tilt !== prev.tilt) {
+    prev.fft = CFG.fft; prev.fMin = CFG.fMin; prev.fMax = CFG.fMax;
+    prev.floorDb = CFG.floorDb; prev.ceilDb = CFG.ceilDb; prev.tilt = CFG.tilt;
+    applyAnalyserCfg();
+  }
+  if (analyser) analyser.smoothingTimeConstant = Math.max(0, Math.min(0.95, CFG.smoothing));
+  if (inputGain) inputGain.gain.value = 1;              // gain applied in analysis, keeps monitor level stable
+  updateMonitor();
+  orbitKey = '';                                         // force orbit rebuild on next draw
+  scheduleSave();
+}
+
+/* =====================================================================
+   Main loop
+   ===================================================================== */
+let lastFrameT = 0, slowFrames = 0;
+/* Camera shake. A drop should be felt, not just seen: a sharp impulse on
+   every bass-weighted onset plus a sustained component from sub/bass, on
+   two detuned sine pairs so it wanders instead of buzzing on one axis.
+   SHKP is the overdraw margin that keeps the frame edges covered. */
+let shakeE = 0, SHKX = 0, SHKY = 0, SHKP = 0, SHKR = 0;
+function updateShake(now, m, dt) {
+  shakeE *= Math.pow(0.006, dt);
+  if (M.beat) {
+    const lowWeight = 0.22 + (m.sub * 1.5 + m.bass * 1.1);
+    shakeE = Math.min(2.4, shakeE + M.beatStrength * lowWeight);
+  }
+  const sustained = m.sub * 0.75 + m.bass * 0.45;
+  const amp = (shakeE * 0.75 + sustained * 0.55) * CFG.shake * Math.min(W, H) * 0.021;
+  SHKX = (Math.sin(now * 0.0510) * 0.62 + Math.sin(now * 0.0173 + 1.7) * 0.38) * amp;
+  SHKY = (Math.sin(now * 0.0437 + 2.3) * 0.62 + Math.sin(now * 0.0211 + 0.4) * 0.38) * amp * 0.8;
+  SHKR = Math.sin(now * 0.0231 + 1.1) * amp * 0.00045 * CFG.shakeRot;
+  const mag = (SHKX < 0 ? -SHKX : SHKX) + (SHKY < 0 ? -SHKY : SHKY);
+  SHKP = Math.min(Math.min(W, H) * 0.07, mag + Math.abs(SHKR) * Math.max(W, H) + 2);
+}
+function frame(now) {
+  requestAnimationFrame(frame);
+  fpsN++;
+  if (now - lastFpsT > 500) { fps = Math.round(fpsN * 1000 / (now - lastFpsT)); fpsN = 0; lastFpsT = now; }
+  const dt = lastFrameT ? Math.min(0.05, (now - lastFrameT) / 1000) : 0.016;
+  lastFrameT = now;
+  flowT += dt * CFG.motion * (RM ? 0.35 : 1);
+  hueBase += dt * CFG.hueSpeed;
+  hueKick *= Math.pow(0.06, dt);
+
+  const m = analyze(now, dt);
+  if (M.beat) {
+    pushShock(now, M.beatStrength);
+    hueKick += CFG.beatHue * 26 * (0.4 + M.beatStrength);
+  }
+  if (CFG.centroidHue) hueBase += (M.centroid - 0.4) * CFG.centroidHue * 34 * dt;
+  updateShake(now, m, dt);
+  rebuildColourCache(BARS);
+
+  /* ---- background: fully redrawn, it is the vibe layer ---- */
+  renderBackground(now, m);
+
+  /* ---- atmosphere buffer: fades for persistence, additive ---- */
+  const fade = Math.max(0.02, Math.min(0.7, CFG.trail));
+  useAtmo();
+  atmx.setTransform(RS, 0, 0, RS, 0, 0);
+  atmx.globalCompositeOperation = 'source-over';
+  atmx.globalAlpha = fade;
+  atmx.fillStyle = '#000';
+  atmx.fillRect(0, 0, W, H);
+  atmx.globalAlpha = 1;
+  atmx.globalCompositeOperation = 'lighter';
+
+  drawOrbits(now, m, dt);
+  drawRadial(now, m, dt);
+  drawLissajous(now, m);
+  drawShocks(now, m);
+  drawParticles(now, m, dt);
+
+  /* ---- hero buffer: cleared outright, source-over so overlapping
+     shapes occlude instead of summing to white ---- */
+  useHero();
+  hex.setTransform(RS, 0, 0, RS, 0, 0);
+  hex.globalCompositeOperation = 'source-over';
+  hex.globalAlpha = 1;
+  hex.clearRect(0, 0, W, H);
+
+  drawBars(now, m);
+  drawStrings(now, m);
+  useAtmo();
+
+  /* ---- composite ---- */
+  ctx.setTransform(RS, 0, 0, RS, 0, 0);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  if (SHKP > 0.01) {
+    ctx.save();
+    ctx.translate(W / 2, H / 2); ctx.rotate(SHKR); ctx.translate(-W / 2, -H / 2);
+    ctx.drawImage(bgC, SHKX - SHKP, SHKY - SHKP, W + SHKP * 2, H + SHKP * 2);
+    ctx.restore();
+  } else {
+    ctx.drawImage(bgC, 0, 0, W, H);
+  }
+
+  applyBloom();
+
+  ctx.save();
+  ctx.setTransform(RS, 0, 0, RS, 0, 0);
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = Math.max(0.1, Math.min(1.6, CFG.exposure));
+  const punch = 1 + beatPulse * 0.018 * CFG.pulseZoom;
+  if (punch > 1.0002 || SHKR) {
+    ctx.translate(W / 2, H / 2); ctx.scale(punch, punch); ctx.rotate(SHKR); ctx.translate(-W / 2, -H / 2);
+  }
+  if (SHKP > 0.01) ctx.drawImage(atmoC, SHKX - SHKP, SHKY - SHKP, W + SHKP * 2, H + SHKP * 2);
+  else ctx.drawImage(atmoC, 0, 0, W, H);
+  ctx.restore();
+
+  /* Hero layers composited with source-over: they sit ON the frame
+     rather than adding to it, so they can never clip to white. A light
+     'lighter' pass at low alpha puts a little of the glow back without
+     re-introducing the blockers. */
+  ctx.save();
+  ctx.setTransform(RS, 0, 0, RS, 0, 0);
+  if (punch > 1.0002 || SHKR) {
+    ctx.translate(W / 2, H / 2); ctx.scale(punch, punch); ctx.rotate(SHKR); ctx.translate(-W / 2, -H / 2);
+  }
+  const hx = SHKP > 0.01 ? SHKX - SHKP : 0, hy = SHKP > 0.01 ? SHKY - SHKP : 0;
+  const hw = SHKP > 0.01 ? W + SHKP * 2 : W, hh = SHKP > 0.01 ? H + SHKP * 2 : H;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = Math.max(0, Math.min(1, CFG.heroOpacity !== undefined ? CFG.heroOpacity : 0.92));
+  ctx.drawImage(heroC, hx, hy, hw, hh);
+  const hg = CFG.heroGlow !== undefined ? CFG.heroGlow : 0.3;
+  if (hg > 0.01) {
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = hg;
+    ctx.drawImage(heroC, hx, hy, hw, hh);
+  }
+  ctx.restore();
+
+  applyPost(now, m);
+  updateHud(now, m);
+
+  /* ---- auto-throttle ---- */
+  if (CFG.autoQuality) {
+    if (fps && fps < 34) { if (++slowFrames > 90) { slowFrames = 0; degrade(); } }
+    else slowFrames = Math.max(0, slowFrames - 1);
+  }
+}
+function degrade() {
+  if (CFG.partMax > 800) { CFG.partMax = Math.round(CFG.partMax * 0.6); }
+  else if (+CFG.nebulaRes > 96) { CFG.nebulaRes = String(Math.max(96, Math.round(+CFG.nebulaRes * 0.7))); buildNebula(); }
+  else if (CFG.barCount > 128) { CFG.barCount = Math.round(CFG.barCount * 0.7); onCfgChanged(false); }
+  else if (CFG.bloomLv > 1) { CFG.bloomLv--; }
+  else if (CFG.quality !== '0.75') { CFG.quality = '0.75'; resize(); }
+  else return;
+  syncPanel(); toast('Auto-throttled for framerate');
+}
+
+/* =====================================================================
+   Overlay / input
+   ===================================================================== */
+const overlay = document.getElementById('overlay');
+const errEl = document.getElementById('err');
+function hideOverlay() { overlay.style.display = 'none'; errEl.style.display = 'none'; }
+function showOverlay() { overlay.style.display = 'flex'; refreshDevices(); }
+// errors go to the start panel while it is up, otherwise to a long toast,
+// so a failed switch from the keyboard or settings is never silent
+function showError(msg) {
+  if (overlay.style.display === 'none') { toast(msg, 5500); return; }
+  errEl.textContent = msg; errEl.style.display = 'block';
+}
+
+/* ---- source pickers: start panel + settings header ------------------ */
+const micSel = document.getElementById('micSel');
+const srcSel = document.getElementById('srcSel');
+const srcNote = document.getElementById('srcNote');
+function fillSelect(sel, opts, value) {
+  sel.textContent = '';
+  for (const [v, t] of opts) { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); }
+  sel.value = value;
+}
+function renderSourceUI() {
+  const cur = curSource ? curSource.kind : '';
+  const sys = sysDevice(), mics = micDevices();
+  const sysMissing = labelsKnown && !sys && !/Win/i.test(navigator.platform);
+
+  const want = cur || lastSrc.kind || 'demo';
+  document.querySelectorAll('#panel .btn[data-kind]').forEach(b => b.classList.toggle('primary', b.dataset.kind === want));
+  const sysNote = document.getElementById('sysNote');
+  sysNote.textContent = sysMissing ? 'not set up — open PRISM from its launcher' : /Win/i.test(navigator.platform) && !sys ? 'choose Entire screen and enable system audio' : 'all desktop sound · no screen sharing';
+  sysNote.classList.toggle('warn', sysMissing);
+
+  let micId = 'default';
+  if (cur === 'mic') micId = curSource.id;
+  else if (lastSrc.kind === 'mic') { const d = findInput(lastSrc.id, lastSrc.label); micId = d ? d.id : lastSrc.id || 'default'; }
+  const micOpts = [['default', 'Default input']].concat(mics.map(d => [d.id, d.label]));
+  if (!micOpts.some(o => o[0] === micId)) micOpts.push([micId, cur === 'mic' ? curSource.device : 'Unavailable · ' + (lastSrc.label || 'saved microphone')]);
+  fillSelect(micSel, micOpts, micId);
+  micSel.title = labelsKnown ? 'Input device' : 'Device names appear after the first microphone access';
+
+  const opts = [];
+  if (!cur) opts.push(['', '— none —']);
+  opts.push(['demo', 'Demo signal'], ['sys', sys || /Win/i.test(navigator.platform) ? 'Entire desktop audio' : 'Entire desktop audio (not set up)']);
+  for (const d of inputs.filter(d => d.sys)) opts.push(['sys:' + d.id, 'Desktop · ' + d.label]);
+  for (const [id, name] of micOpts) opts.push(['mic:' + id, 'Mic · ' + name]);
+  opts.push(['tab', 'Browser tab audio…']);
+  if (cur === 'file') opts.push(['file:cur', 'File · ' + curSource.label]);
+  if (cur === 'test') opts.push(['test', 'Test feed']);
+  opts.push(['file', 'Audio file…']);
+  fillSelect(srcSel, opts, cur === 'sys' && curSource.id && curSource.id !== 'default' ? 'sys:' + curSource.id : cur === 'mic' ? 'mic:' + curSource.id : cur === 'file' ? 'file:cur' : cur);
+
+  const note = !labelsKnown ? 'Device names appear once the page has microphone access (↻ asks for it).'
+    : sysMissing ? 'No "PRISM System Audio" input. Open PRISM from its launcher (prism-v4.sh) to hear what is playing.'
+    : '';
+  srcNote.textContent = note; srcNote.style.display = note ? 'block' : 'none';
+}
+function pickMic(id) { startMic(id); }
+
+document.getElementById('btn-demo').addEventListener('click', e => { e.stopPropagation(); startDemo(); });
+document.getElementById('btn-mic').addEventListener('click', e => { e.stopPropagation(); pickMic(micSel.value); });
+document.getElementById('btn-sys').addEventListener('click', e => { e.stopPropagation(); startSystem(); });
+document.getElementById('btn-tab').addEventListener('click', e => { e.stopPropagation(); startTab(); });
+document.getElementById('btn-file').addEventListener('click', e => { e.stopPropagation(); document.getElementById('file').click(); });
+micSel.addEventListener('click', e => e.stopPropagation());
+micSel.addEventListener('change', () => { micSel.blur(); pickMic(micSel.value); });
+srcSel.addEventListener('change', () => {
+  const v = srcSel.value; srcSel.blur();
+  if (v === 'demo') startDemo();
+  else if (v === 'sys') startSystem();
+  else if (v.startsWith('sys:')) startSystem(v.slice(4));
+  else if (v === 'tab') startTab();
+  else if (v === 'file') document.getElementById('file').click();
+  else if (v.startsWith('mic:')) pickMic(v.slice(4));
+  renderSourceUI();             // show the live source until the new one has actually started
+});
+document.getElementById('srcRefresh').addEventListener('click', () => {
+  const md = navigator.mediaDevices;
+  const unlock = (!labelsKnown && md && md.getUserMedia)
+    ? md.getUserMedia({ audio: true }).then(s => s.getTracks().forEach(t => t.stop()))
+    : Promise.resolve();
+  unlock.then(refreshDevices)
+    .then(() => toast(inputs.length + ' input' + (inputs.length === 1 ? '' : 's') + (sysDevice() ? ' · system audio ready' : '')))
+    .catch(e => showError(mediaError(e, 'Device scan')));
+});
+// Chromium fires devicechange for hardware only, not for PipeWire virtual
+// inputs like the loopback, so also rescan whenever the window comes back
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener)
+  navigator.mediaDevices.addEventListener('devicechange', refreshDevices);
+addEventListener('focus', refreshDevices);
+refreshDevices();
+overlay.addEventListener('click', e => { if (e.target === overlay) startDemo(); });
+document.getElementById('file').addEventListener('change', e => {
+  if (e.target.files && e.target.files[0]) loadFile(e.target.files[0]);
+  e.target.value = '';
+});
+document.addEventListener('dragover', e => { e.preventDefault(); document.getElementById('dropHint').style.display = 'flex'; });
+document.addEventListener('dragleave', e => { if (!e.relatedTarget) document.getElementById('dropHint').style.display = 'none'; });
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  document.getElementById('dropHint').style.display = 'none';
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f && /\.json$/i.test(f.name)) { loadSettingsFile(f); return; }
+  if (f && (/^audio\//.test(f.type) || /\.(mp3|wav|ogg|flac|m4a|aac|opus|webm)$/i.test(f.name))) loadFile(f);
+});
+
+const PRESET_ORDER = Object.keys(PRESETS);
+function cyclePreset(dir) {
+  let i = PRESET_ORDER.indexOf(curPreset);
+  if (i < 0) i = 0;
+  i = (i + dir + PRESET_ORDER.length) % PRESET_ORDER.length;
+  applyPreset(PRESET_ORDER[i]);
+}
+addEventListener('keydown', e => {
+  if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  const k = e.key.toLowerCase();
+  if (k === 'm') { curSource && curSource.kind === 'mic' ? (stopSource(), showOverlay()) : startMic(); }
+  else if (k === 'a') { curSource && curSource.kind === 'sys' ? (stopSource(), showOverlay()) : startSystem(); }
+  else if (k === 't') { curSource && curSource.kind === 'tab' ? (stopSource(), showOverlay()) : startTab(); }
+  else if (k === 'd') startDemo();
+  else if (k === 'c') togglePanel();
+  else if (k === 'h') { CFG.hud = !CFG.hud; syncPanel(); scheduleSave(); }
+  else if (k === 'n') cyclePreset(1);
+  else if (k === 'p') cyclePreset(-1);
+  else if (k === 'r') randomise();
+  else if (k === '0') { CFG.monitor = !CFG.monitor; syncPanel(); updateMonitor(); scheduleSave(); toast(CFG.monitor ? 'Sound on' : 'Muted'); }
+  else if (k === 'escape') togglePanel(false);
+  else if (k === 'f') {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen().catch(() => {});
+  }
+  else if (k === 's') {
+    canvas.toBlob(b => {
+      if (!b) return;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(b); a.download = 'prism-v4-' + Date.now() + '.png';
+      a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    });
+    toast('Saved PNG');
+  }
+});
+
+/* =====================================================================
+   Auto-start hooks
+     ?auto=demo  start the demo signal immediately (kiosk / OBS use)
+     ?auto=test  synthetic spectrum feed — no audio device, fully
+                 deterministic, used to check the render at any size
+     &mute=1     start with the monitor output off
+   ===================================================================== */
+function installTestFeed() {
+  ensureCtx();
+  const t0 = performance.now();
+  const bins = analyser.frequencyBinCount;
+  // a handful of strong partials over a low noise bed: if the shaping is
+  // right only these show as tall bars, and the bed stays near the floor
+  const PART = [0.012, 0.024, 0.048, 0.097, 0.19, 0.33];
+  analyser.getByteFrequencyData = function (out) {
+    const t = (performance.now() - t0) / 1000;
+    const beat = Math.pow(Math.max(0, Math.sin(t * Math.PI * 124 / 60)), 8);
+    for (let i = 0; i < out.length; i++) {
+      const f = i / out.length;
+      let v = 0.16 + 0.06 * Math.sin(t * 0.7 + f * 40) - f * 0.1;   // noise bed
+      for (let k = 0; k < PART.length; k++) {
+        const c = PART[k] * (1 + 0.02 * Math.sin(t * 0.5 + k));
+        const w = 0.006 + k * 0.004;
+        const amp = (0.55 + 0.4 * Math.sin(t * (0.6 + k * 0.35) + k)) * (k === 0 ? 0.6 + beat * 0.7 : 1);
+        v += amp * Math.exp(-Math.pow((f - c) / w, 2));
+      }
+      out[i] = Math.max(0, Math.min(255, v * 255)) | 0;
+    }
+  };
+  analyser.getByteTimeDomainData = function (out) {
+    const t = (performance.now() - t0) / 1000;
+    for (let i = 0; i < out.length; i++) {
+      const u = i / out.length;
+      const w = Math.sin(u * 62.8 + t * 6) * 0.5 + Math.sin(u * 151 + t * 3.1) * 0.28
+              + Math.sin(u * 313 + t * 9.7) * 0.14;
+      out[i] = Math.max(0, Math.min(255, 128 + w * 92)) | 0;
+    }
+  };
+  ++reqSeq;
+  curSource = { kind:'test', label:'TEST FEED', monitored:false, stop(){} };
+  hideOverlay(); renderSourceUI();
+}
+(function autoStart() {
+  const q = new URLSearchParams(location.search);
+  if (q.get('mute') === '1') { CFG.monitor = false; syncPanel(); }
+  const pre = q.get('preset');
+  if (pre && PRESETS[pre]) applyPreset(pre);
+  const th = q.get('theme');
+  if (th && THEMES[th]) { CFG.theme = th; syncPanel(); }
+  const a = q.get('auto');
+  if (a === 'demo') setTimeout(startDemo, 60);
+  else if (a === 'test') setTimeout(installTestFeed, 60);
+})();
+
+/* =====================================================================
+   Boot
+   ===================================================================== */
+allocParticles(Math.max(100, Math.round(CFG.partMax)));
+resize();
+markPresetRow();
+requestAnimationFrame(frame);
+
+/* small debug surface for automated checks */
+window.__prism4 = {
+  get cfg() { return CFG; },
+  get metrics() { return M; },
+  get fps() { return fps; },
+  get bars() { return BARS; },
+  get particles() { return pn; },
+  get source() { return curSource ? curSource.kind : null; },
+  get sourceLabel() { return curSource ? curSource.label : null; },
+  get inputs() { return inputs.map(d => Object.assign({}, d)); },
+  get barHeights() { return Array.from(smooth); },
+  setCfg, applyPreset, startDemo, stopSource, installTestFeed,
+  startMic, startSystem, startTab, refreshDevices,
+  mute() { CFG.monitor = false; syncPanel(); updateMonitor(); },
+};
+})();
+</script>
+</body>
+</html>
